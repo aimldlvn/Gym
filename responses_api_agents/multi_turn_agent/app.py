@@ -31,7 +31,7 @@ resources server for verification and reward computation.
 
 import json
 import logging
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from fastapi import Request, Response
 from pydantic import ConfigDict, ValidationError
@@ -48,7 +48,7 @@ from nemo_gym.base_responses_api_agent import (
     Body,
     SimpleResponsesAPIAgent,
 )
-from nemo_gym.config_types import ModelServerRef, ResourcesServerRef
+from nemo_gym.config_types import ModelServerRef, ResourcesServerRef, AgentServerRef
 from nemo_gym.openai_utils import (
     NeMoGymEasyInputMessage,
     NeMoGymFunctionCallOutput,
@@ -74,7 +74,7 @@ LOG = logging.getLogger(__name__)
 class MultiTurnAgentConfig(BaseResponsesAPIAgentConfig):
     resources_server: ResourcesServerRef
     model_server: ModelServerRef  # Required - Policy model (the model being trained/evaluated)
-    user_model_server: ModelServerRef  # Required — LLM that simulates the human user
+    user_model_server: Union[ModelServerRef, AgentServerRef]  # Required — LLM that simulates the human user
     max_turns: int  # Required — no safe default; each environment must set this
     max_steps_per_turn: Optional[int] = None  # None = unbounded; inner loop self-terminates
     user_model_system_prompt: str  # Required — defines the user model's persona/behavior
@@ -364,20 +364,88 @@ class MultiTurnAgent(SimpleResponsesAPIAgent):
         # Per-task override from JSONL data takes precedence over config default
         user_system_prompt = body.model_dump().get("user_model_system_prompt") or self.config.user_model_system_prompt
 
-        # Build user model input: its own system prompt + conversation history
-        # (excluding the policy model's system/developer prompt to avoid confusion)
+        # Build user model input from the user LLM's perspective:
+        #   - Its own prior outputs (originally "user" role in the trajectory)
+        #     need to be labeled "assistant" because the model always produces
+        #     assistant-role messages.
+        #   - The policy's outputs (originally "assistant") need to be labeled
+        #     "user" because the policy is the "other party" talking to it.
+        #
+        # Chat/completions (and especially Bedrock/Claude) require the
+        # conversation to end with a user message before the model produces
+        # the next assistant message. Swapping roles here gives us that shape.
+        #
+        # For user models that don't make tool calls (user_model_tool_choice
+        # is None), we also drop reasoning/function_call/function_call_output
+        # items from the trajectory so the user LLM sees a clean text-only
+        # conversation.
+        def _item_role(i):
+            return i.get("role") if isinstance(i, dict) else getattr(i, "role", None)
+
+        def _item_type(i):
+            return i.get("type") if isinstance(i, dict) else getattr(i, "type", None)
+
+        def _extract_text(i):
+            content = i.get("content") if isinstance(i, dict) else getattr(i, "content", None)
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                parts = []
+                for piece in content:
+                    if isinstance(piece, dict):
+                        text = piece.get("text")
+                    else:
+                        text = getattr(piece, "text", None)
+                    if text:
+                        parts.append(text)
+                return "\n".join(parts)
+            return ""
+
+        def _swap_role(i):
+            role = _item_role(i)
+            new_role = {"user": "assistant", "assistant": "user"}.get(role, role)
+            # Flatten to the simple {role, content: str, type: "message"} shape
+            # (NeMoGymEasyInputMessage-compatible) so the swapped item passes
+            # pydantic validation regardless of original content format.
+            return {"role": new_role, "content": _extract_text(i), "type": "message"}
+
+        user_sees_tools = self.config.user_model_tool_choice is not None
+
         user_model_input = [{"role": "system", "content": user_system_prompt, "type": "message"}]
-        for msg in original_input:
-            role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
-            if role not in ("system", "developer"):
-                user_model_input.append(msg)
-        user_model_input.extend(all_turn_outputs)
+
+        if user_sees_tools:
+            # Original behavior: user sees the full trajectory verbatim
+            # (tool calls and outputs intact). Roles are not swapped because
+            # tool_calls belong to assistant messages.
+            for msg in original_input:
+                if _item_role(msg) not in ("system", "developer"):
+                    user_model_input.append(msg)
+            user_model_input.extend(all_turn_outputs)
+        else:
+            # Text-only view with swapped roles so the conversation ends on
+            # a "user" message (= policy's most recent reply from the user
+            # LLM's perspective).
+            for msg in original_input:
+                role = _item_role(msg)
+                if role in ("system", "developer"):
+                    continue
+                if role in ("user", "assistant"):
+                    user_model_input.append(_swap_role(msg))
+                else:
+                    user_model_input.append(msg)
+            for item in all_turn_outputs:
+                if _item_type(item) in ("function_call", "function_call_output", "reasoning"):
+                    continue
+                if _item_type(item) == "message" and _item_role(item) in ("user", "assistant"):
+                    user_model_input.append(_swap_role(item))
+                else:
+                    user_model_input.append(item)
 
         original_params = body.responses_create_params.model_dump(exclude_unset=True)
         user_model_params = {"input": user_model_input}
 
         tools = original_params.get("tools")
-        if tools:
+        if tools and user_sees_tools:
             user_model_params["tools"] = tools
         if self.config.user_model_tool_choice:
             user_model_params["tool_choice"] = self.config.user_model_tool_choice
