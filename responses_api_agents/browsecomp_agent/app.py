@@ -12,13 +12,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import hashlib
 import json
 import re
 import time
+import traceback
+from datetime import datetime
+from pathlib import Path
 from typing import List
 
 from fastapi import Request, Response
 from pydantic import ConfigDict, ValidationError
+
+from nemo_gym.global_config import NEMO_GYM_LOG_DIR_KEY_NAME, get_global_config_dict
 
 from nemo_gym.base_resources_server import (
     AggregateMetrics,
@@ -122,145 +128,208 @@ class BrowsecompAgent(SimpleResponsesAPIAgent):
                 flush=True,
             )
 
+        # --- Per-rollout-attempt trajectory log: one JSONL file per (sample, attempt) ---
+        user_msg_content = next((m.content for m in body.input if getattr(m, "role", None) == "user"), "")
+        sample_id = hashlib.sha1(user_msg_content.encode("utf-8")).hexdigest()[:12] if user_msg_content else "anon"
+        log_dir = Path(get_global_config_dict().get(NEMO_GYM_LOG_DIR_KEY_NAME) or "nemo_gym_logs")
+        traj_dir = log_dir / "trajectories"
+        traj_dir.mkdir(parents=True, exist_ok=True)
+        # Fresh filename per attempt: timestamp with microseconds disambiguates retries of the same sample.
+        attempt_stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
+        traj_path = traj_dir / f"{sample_id}__{attempt_stamp}.jsonl"
+        traj_f = traj_path.open("w", encoding="utf-8")
+        prev_event_ts = time.monotonic()
+
+        def log_event(event, **extra):
+            nonlocal prev_event_ts
+            now = time.monotonic()
+            rec = {
+                "ts": datetime.utcnow().isoformat() + "Z",
+                "step": step,
+                "event": event,
+                "dt_s": round(now - prev_event_ts, 3),
+                **extra,
+            }
+            traj_f.write(json.dumps(rec, default=str) + "\n")
+            traj_f.flush()
+            prev_event_ts = now
+
+        log_event("start", sample_id=sample_id, question=user_msg_content)
         print_log("start")
         step_start = time.monotonic()
 
-        while True:
-            step += 1
+        try:
+            while True:
+                step += 1
 
-            if self.config.keep_rounds is not None and new_outputs:
-                new_outputs = self._compact_old_tool_messages(new_outputs)
+                if self.config.keep_rounds is not None and new_outputs:
+                    new_outputs = self._compact_old_tool_messages(new_outputs)
 
-            new_body = body.model_copy(update={"input": body.input + new_outputs})
+                new_body = body.model_copy(update={"input": body.input + new_outputs})
 
-            model_response = await self.server_client.post(
-                server_name=self.config.model_server.name,
-                url_path="/v1/responses",
-                json=new_body,
-                cookies=model_server_cookies,
+                model_response = await self.server_client.post(
+                    server_name=self.config.model_server.name,
+                    url_path="/v1/responses",
+                    json=new_body,
+                    cookies=model_server_cookies,
+                )
+                # We raise for status here since we expect model calls to always work.
+                await raise_for_status(model_response)
+                model_response_json = await get_response_json(model_response)
+                model_server_cookies = model_response.cookies
+                try:
+                    model_response = NeMoGymResponse.model_validate(model_response_json)
+                except ValidationError as e:
+                    raise RuntimeError(
+                        f"Received an invalid response from model server: {json.dumps(model_response_json)}"
+                    ) from e
+
+                # --- Check context reset threshold ---
+                prompt_tokens = model_response.usage.input_tokens if model_response.usage else 0
+                output_tokens = model_response.usage.output_tokens if model_response.usage else None
+                incomplete = model_response.incomplete_details.reason if model_response.incomplete_details else None
+                will_reset = bool(reset_threshold and prompt_tokens > reset_threshold)
+                had_issue = bool(incomplete) or will_reset
+                log_event(
+                    "model_call",
+                    input_tokens=prompt_tokens,
+                    output_tokens=output_tokens,
+                    incomplete=incomplete,
+                    reset=will_reset,
+                    output=[o.model_dump(exclude_none=True) for o in model_response.output],
+                    input=([m.model_dump(exclude_none=True) if hasattr(m, "model_dump") else m for m in new_body.input] if had_issue else None),
+                )
+                if reset_threshold and prompt_tokens > reset_threshold:
+                    if self.config.context_reset_keep_rounds > 0:
+                        new_outputs = self._extract_last_rounds(new_outputs)
+                    else:
+                        new_outputs = []
+                    context_reset_steps.append(step)
+                    continue
+
+                output = model_response.output
+                new_outputs.extend(output)
+
+                if not usage:
+                    usage = model_response.usage
+                    model_response.usage = None
+
+                if usage and model_response.usage:
+                    usage.input_tokens += model_response.usage.input_tokens
+                    usage.output_tokens += model_response.usage.output_tokens
+                    usage.total_tokens += model_response.usage.total_tokens
+
+                    # TODO support more advanced token details
+                    usage.input_tokens_details.cached_tokens = 0
+                    usage.output_tokens_details.reasoning_tokens = 0
+
+                if model_response.incomplete_details and model_response.incomplete_details.reason == "max_output_tokens":
+                    break
+
+                # --- If the model decided to answer (no tool calls), we are done ---
+                all_fn_calls: List[NeMoGymResponseFunctionToolCall] = [o for o in output if o.type == "function_call"]
+                all_output_messages: List[NeMoGymResponseOutputMessage] = [
+                    o for o in output if o.type == "message" and o.role == "assistant"
+                ]
+                if not all_fn_calls and all_output_messages:
+                    break
+
+                # --- Execute tool calls ---
+                for output_function_call in all_fn_calls:
+                    api_response = await self.server_client.post(
+                        server_name=self.config.resources_server.name,
+                        url_path=f"/{output_function_call.name}",
+                        json=json.loads(output_function_call.arguments),
+                        cookies=resources_server_cookies,
+                    )
+                    # We don't raise for status here since it's a valid return for the API to error e.g. if the model outputs an invalid call or something.
+                    resources_server_cookies = api_response.cookies
+
+                    tool_output = (await api_response.content.read()).decode()
+                    log_event(
+                        "tool_call",
+                        name=output_function_call.name,
+                        args=output_function_call.arguments,
+                        output=tool_output,
+                    )
+                    if self.config.nudge_steps:
+                        turns_left = self.config.max_steps - step
+                        tool_output += "\n\n[%d turns remaining out of %d]" % (turns_left, self.config.max_steps)
+
+                    tool_response = NeMoGymFunctionCallOutput(
+                        type="function_call_output",
+                        call_id=output_function_call.call_id,
+                        output=tool_output,
+                    )
+                    new_outputs.append(tool_response)
+
+                # --- Nudge the model at milestone steps ---
+                if self.config.nudge_steps and all_fn_calls:
+                    quarter = self.config.max_steps // 4
+                    half = self.config.max_steps // 2
+                    near_end = int(self.config.max_steps * 0.875)
+                    nudge_msg = None
+                    if step == quarter:
+                        nudge_msg = (
+                            "\n\n\n\n\n"
+                            "[SYSTEM NOTE: You have used %d out of %d turns. "
+                            "Please consider consolidating your findings and "
+                            "delivering an answer soon.]" % (step, self.config.max_steps)
+                        )
+                    elif step == half:
+                        nudge_msg = (
+                            "\n\n\n\n\n"
+                            "[SYSTEM NOTE: You have used %d out of %d turns — "
+                            "you are halfway through your budget. You should start "
+                            "formulating your final answer based on the research "
+                            "you have already done. Do not keep searching endlessly.]" % (step, self.config.max_steps)
+                        )
+                    elif step == near_end:
+                        nudge_msg = (
+                            "\n\n\n\n\n"
+                            "[SYSTEM NOTE: URGENT — You have used %d out of %d turns. "
+                            "You are almost out of turns. YOU MUST deliver your final "
+                            "answer NOW using the information you have already gathered. "
+                            "Do NOT make any more tool calls. Provide your best answer "
+                            "immediately in the required format with 'Exact Answer:' on "
+                            "a line by itself.]" % (step, self.config.max_steps)
+                        )
+
+                    if nudge_msg:
+                        last_tool = new_outputs[-1]
+                        new_output = last_tool.output + nudge_msg
+                        new_outputs[-1] = last_tool.model_copy(update={"output": new_output})
+
+                now = time.monotonic()
+                step_times.append(now - step_start)
+                step_start = now
+
+                if step < 10:
+                    print_log("loop")
+                elif step % 10 == 0:
+                    print_log("loop")
+                    step_times.clear()
+                    context_reset_steps.clear()
+
+                # Check if max steps is not None and if we have exhausted it.
+                if self.config.max_steps and step >= self.config.max_steps:
+                    break
+
+            print_log("final")
+            log_event("final", total_steps=step)
+        except Exception as e:
+            err_input_source = locals().get("new_body")
+            err_input = err_input_source.input if err_input_source is not None else body.input
+            log_event(
+                "error",
+                error_type=type(e).__name__,
+                error_msg=str(e),
+                traceback=traceback.format_exc()[:4000],
+                input=[m.model_dump(exclude_none=True) if hasattr(m, "model_dump") else m for m in err_input],
             )
-            # We raise for status here since we expect model calls to always work.
-            await raise_for_status(model_response)
-            model_response_json = await get_response_json(model_response)
-            model_server_cookies = model_response.cookies
-            try:
-                model_response = NeMoGymResponse.model_validate(model_response_json)
-            except ValidationError as e:
-                raise RuntimeError(
-                    f"Received an invalid response from model server: {json.dumps(model_response_json)}"
-                ) from e
-
-            # --- Check context reset threshold ---
-            prompt_tokens = model_response.usage.input_tokens if model_response.usage else 0
-            if reset_threshold and prompt_tokens > reset_threshold:
-                if self.config.context_reset_keep_rounds > 0:
-                    new_outputs = self._extract_last_rounds(new_outputs)
-                else:
-                    new_outputs = []
-                context_reset_steps.append(step)
-                continue
-
-            output = model_response.output
-            new_outputs.extend(output)
-
-            if not usage:
-                usage = model_response.usage
-                model_response.usage = None
-
-            if usage and model_response.usage:
-                usage.input_tokens += model_response.usage.input_tokens
-                usage.output_tokens += model_response.usage.output_tokens
-                usage.total_tokens += model_response.usage.total_tokens
-
-                # TODO support more advanced token details
-                usage.input_tokens_details.cached_tokens = 0
-                usage.output_tokens_details.reasoning_tokens = 0
-
-            if model_response.incomplete_details and model_response.incomplete_details.reason == "max_output_tokens":
-                break
-
-            # --- If the model decided to answer (no tool calls), we are done ---
-            all_fn_calls: List[NeMoGymResponseFunctionToolCall] = [o for o in output if o.type == "function_call"]
-            all_output_messages: List[NeMoGymResponseOutputMessage] = [
-                o for o in output if o.type == "message" and o.role == "assistant"
-            ]
-            if not all_fn_calls and all_output_messages:
-                break
-
-            # --- Execute tool calls ---
-            for output_function_call in all_fn_calls:
-                api_response = await self.server_client.post(
-                    server_name=self.config.resources_server.name,
-                    url_path=f"/{output_function_call.name}",
-                    json=json.loads(output_function_call.arguments),
-                    cookies=resources_server_cookies,
-                )
-                # We don't raise for status here since it's a valid return for the API to error e.g. if the model outputs an invalid call or something.
-                resources_server_cookies = api_response.cookies
-
-                tool_output = (await api_response.content.read()).decode()
-                if self.config.nudge_steps:
-                    turns_left = self.config.max_steps - step
-                    tool_output += "\n\n[%d turns remaining out of %d]" % (turns_left, self.config.max_steps)
-
-                tool_response = NeMoGymFunctionCallOutput(
-                    type="function_call_output",
-                    call_id=output_function_call.call_id,
-                    output=tool_output,
-                )
-                new_outputs.append(tool_response)
-
-            # --- Nudge the model at milestone steps ---
-            if self.config.nudge_steps and all_fn_calls:
-                quarter = self.config.max_steps // 4
-                half = self.config.max_steps // 2
-                near_end = int(self.config.max_steps * 0.875)
-                nudge_msg = None
-                if step == quarter:
-                    nudge_msg = (
-                        "\n\n\n\n\n"
-                        "[SYSTEM NOTE: You have used %d out of %d turns. "
-                        "Please consider consolidating your findings and "
-                        "delivering an answer soon.]" % (step, self.config.max_steps)
-                    )
-                elif step == half:
-                    nudge_msg = (
-                        "\n\n\n\n\n"
-                        "[SYSTEM NOTE: You have used %d out of %d turns — "
-                        "you are halfway through your budget. You should start "
-                        "formulating your final answer based on the research "
-                        "you have already done. Do not keep searching endlessly.]" % (step, self.config.max_steps)
-                    )
-                elif step == near_end:
-                    nudge_msg = (
-                        "\n\n\n\n\n"
-                        "[SYSTEM NOTE: URGENT — You have used %d out of %d turns. "
-                        "You are almost out of turns. YOU MUST deliver your final "
-                        "answer NOW using the information you have already gathered. "
-                        "Do NOT make any more tool calls. Provide your best answer "
-                        "immediately in the required format with 'Exact Answer:' on "
-                        "a line by itself.]" % (step, self.config.max_steps)
-                    )
-
-                if nudge_msg:
-                    last_tool = new_outputs[-1]
-                    new_output = last_tool.output + nudge_msg
-                    new_outputs[-1] = last_tool.model_copy(update={"output": new_output})
-
-            now = time.monotonic()
-            step_times.append(now - step_start)
-            step_start = now
-
-            if step % 10 == 0:
-                print_log("loop")
-                step_times.clear()
-                context_reset_steps.clear()
-
-            # Check if max steps is not None and if we have exhausted it.
-            if self.config.max_steps and step >= self.config.max_steps:
-                break
-
-        print_log("final")
+            raise
+        finally:
+            traj_f.close()
 
         # Propogate any extra cookies necessary for downstream verification
         for k, v in (*resources_server_cookies.items(), *model_server_cookies.items()):
