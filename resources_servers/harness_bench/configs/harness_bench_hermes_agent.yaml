@@ -1,0 +1,31 @@
+harness_bench:
+  resources_servers:
+    harness_bench:
+      entrypoint: app.py
+      domain: agent
+      verified: false
+      description: HarnessBench is a procedural benchmark for LLM agents running inside tool-using harnesses. Tasks declare abstract capabilities; adapters (one per harness) map those to concrete tool names.
+
+harness_bench_hermes_agent:
+  responses_api_agents:
+    hermes_agent:
+      entrypoint: app.py
+      resources_server:
+        type: resources_servers
+        name: harness_bench
+      model_server:
+        type: responses_api_models
+        name: policy_model
+      enabled_toolsets: [terminal, file, code_execution, todo, memory, clarify, session_search, skills, web, image_gen]
+      max_turns: 6
+      concurrency: 32
+      terminal_backend: local
+      terminal_timeout: 15
+      tool_pool_size: 128
+      system_prompt: |
+        You are being evaluated on HarnessBench, a suite of tasks that probe tool-use quality. Your tool set is fixed; if you are tempted to call a tool that is not in the list, stop and re-read the list. Use the tools efficiently and answer concisely.
+      datasets:
+      - name: suite_v1
+        type: validation
+        jsonl_fpath: resources_servers/harness_bench/data/suite_v1.jsonl
+        license: Apache 2.0
