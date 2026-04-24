@@ -10,101 +10,44 @@ license: Apache-2.0
 compatibility: Requires Python 3.10+. Works standalone or inside the NeMo Gym repo.
 metadata:
   author: nvidia-nemo-gym
-  version: "2.0"
+  version: "3.0"
 allowed-tools: Bash Read Grep Glob
 ---
 
 # NeMo Gym Code Review
 
-Review code for anti-patterns that cause production failures in NeMo Gym's async, high-concurrency microservice architecture (4k-65k concurrent requests).
+Review code for anti-patterns that fail in NeMo Gym's async, high-concurrency microservice architecture. **Run the script first. Apply judgment only for things the script can't catch.** Everything else lives in the reference docs.
 
-This skill is **script-first**: run the deterministic checker, then apply judgment for context the script can't catch.
-
-## Step 1: Run the automated checker
-
-Run `scripts/review.py` against the target path. It checks 11 Python rules and 1 YAML rule.
+## Step 1: Run the script
 
 ```bash
-# Scan a directory (most common — scan the whole server)
-python scripts/review.py <path>
-
-# Scan with JSON output (for programmatic use)
-python scripts/review.py <path> --json
-
-# Only BLOCK-level findings
-python scripts/review.py <path> --severity BLOCK
+python scripts/review.py <path>         # scan a directory
+python scripts/review.py <path> --json  # machine-readable output
 ```
 
-The script exits 1 if any BLOCK-level findings exist, 0 otherwise.
+The script checks 11 Python rules and 1 YAML rule, prints per-finding `(file:line, rule, description, fix)` entries, and exits 1 if any BLOCK-level findings exist. It's self-contained (stdlib only) and works outside the repo.
 
-> **Note**: `scripts/review.py` is self-contained — no dependencies beyond the Python standard library. It works outside the NeMo Gym repo.
+Each finding is labeled with a `rule` name — cite the rule name in your review so reviewers can cross-reference. The ruleset and full rationale for each rule is in `references/anti-patterns.md`; production fix templates are in `references/fix-patterns.md`.
 
-## Step 2: Interpret the results
+## Step 2: Interpret severity
 
-The script reports findings at two severity levels:
+- **BLOCK** — must fix before merge. Production failure modes: connection-pool hangs, blocked event loops, unbounded concurrency, etc.
+- **WARN** — should fix. Correctness or completeness issues that don't crash production but do affect training quality or confidence in the benchmark.
 
-### BLOCK (must fix before merge)
+If the script is quiet, the code is clean on the patterns the ruleset covers. Say so affirmatively rather than hedging — a clean review report should state "no BLOCK or WARN findings, approval recommended" explicitly.
 
-| Rule | What it catches |
-|------|----------------|
-| `httpx-usage` | httpx/httpcore imports — O(n^2) connection pooling hangs at 16k+ requests |
-| `ray-get-async` | `ray.get()` in async context — blocks the event loop |
-| `missing-semaphore` | Subprocess calls without `asyncio.Semaphore` — unbounded at scale |
-| `missing-errors-replace` | `.decode()` without `errors="replace"` — crashes on non-UTF8 |
-| `env-var-config` | `os.environ`/`os.getenv` for config — must use YAML/Hydra |
-| `wrong-client` | litellm/anthropic imports — must use `nemo_gym/openai_utils.py` |
-| `missing-cookies` | Agent `server_client.post()` without `cookies=` — breaks stateful sessions |
-| `missing-token-ids` | Multi-turn agent without token ID accumulation — breaks RL training |
-| `non-binary-reward` | Reward values other than 0.0/1.0 without documentation |
+## Step 3: Judgment beyond the script
 
-### WARN (should fix)
+Five things the pattern matcher can't verify. Check these manually:
 
-| Rule | What it catches |
-|------|----------------|
-| `missing-think-strip` | Parses model output without stripping `<think>` blocks |
-| `sync-endpoint` | `def verify`/`def run` instead of `async def` |
-| `verified-true` | Config has `verified: true` — confirm baselining was done |
-| `missing-gitlab-id` | Train/validation dataset without `gitlab_identifier` |
-| `missing-license` | Train/validation dataset without `license` field |
+- **Test coverage** — each server should test verify() pass, verify() fail (wrong output), verify() fail (no extraction), verify() fail (timeout or error path), and any partial-reward path. Target ≥95% coverage.
+- **`pytest.mark.skipif`** on tests requiring external tools not in stdlib.
+- **Unguarded optional fields** — `(body.field or {}).get("key", default)`, not `body.field.get(...)`.
+- **YAML instance-name references** — agent `resources_server.name` / `model_server.name` must match top-level instance names in the composed config.
+- **Intentional partial rewards** — if `non-binary-reward` fires, confirm the partial credit is documented (e.g. judge fallback, `check_twice_swap`).
 
-For each finding, the script provides the file, line number, rule name, description, and fix suggestion.
-
-## Step 3: Apply judgment (what the script can't catch)
-
-The script handles pattern matching. These require human/agent judgment:
-
-1. **Test coverage completeness**: Does the server have tests for verify pass, verify fail (wrong output), verify fail (no extraction), verify fail (compilation error if applicable), and verify timeout? Target >= 95% coverage.
-
-2. **`pytest.mark.skipif` for external tools**: Tests requiring tools not in the standard library should use `skipif(shutil.which("tool") is None, ...)`.
-
-3. **Unguarded optional fields**: Access patterns like `body.field.get("key")` should use `(body.field or {}).get("key", default)`.
-
-4. **YAML instance name consistency**: Agent configs reference resources/model servers by name — verify these match actual instance names in the config.
-
-5. **Intentional partial rewards**: If the script flags `non-binary-reward`, check whether the partial credit is documented and intentional (e.g., judge-based servers with `check_twice_swap`).
+For the exact anti-pattern catalog and fix patterns, see the references.
 
 ## Step 4: Report
 
-Structure the review as:
-
-```
-## Review: [server/agent name]
-
-### Automated findings
-<paste or summarize review.py output>
-
-### Manual checks
-- Test coverage: [pass/fail/not applicable]
-- Optional field guards: [pass/fail]
-- YAML consistency: [pass/fail]
-
-### Summary
-X BLOCK, Y WARN — [merge/do not merge]
-```
-
-## References
-
-Full context for each anti-pattern and its fix:
-
-- `references/anti-patterns.md` — Why each pattern fails in production, with architecture context
-- `references/fix-patterns.md` — Production code patterns: aiohttp adapter, cookie chain, token accumulation, semaphore-subprocess, think-block stripping variants
+Structure the review around the script's findings and the manual checks above. When the code is clean, state the approval recommendation directly — don't manufacture concerns.
