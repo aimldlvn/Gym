@@ -21,11 +21,11 @@
       "expected_output": "Triage steps for a partially healthy cluster: check resource server logs, verify the entrypoint, check port conflicts, and hand off to gym-debug if the issue persists.",
       "files": ["evals/files/sample_run_config.yaml"],
       "assertions": [
-        "Server logs recommended as first diagnostic step",
+        "Reviewing server logs (stdout/stderr or the ng_run log output) suggested as a diagnostic step",
         "Port conflict between servers identified as a possible cause",
-        "Missing dependency or import error mentioned as common startup failure",
-        "ng_run +dry_run=true suggested to verify venv setup without launching",
-        "Handoff to gym-debug recommended if issue persists after basic triage"
+        "Missing dependency or import error mentioned as a common startup failure",
+        "ng_run with +dry_run=true (or an equivalent dry-run flag) suggested to verify setup without launching servers",
+        "Mentions using the gym-debug skill (or a handoff to gym-debug) for deeper investigation"
       ]
     },
     {

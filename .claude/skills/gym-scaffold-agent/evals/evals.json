@@ -37,7 +37,7 @@
         "Token ID accumulation confirmed as correct",
         "Max iteration bound confirmed as present",
         "Semaphore usage confirmed",
-        "Response confirms the agent is ready for use (no BLOCK findings)"
+        "Response's overall conclusion is that the agent has no BLOCK, 'must fix', or crash-level findings; if ANY such finding is flagged anywhere in the response, this assertion is NOT satisfied"
       ]
     }
   ]

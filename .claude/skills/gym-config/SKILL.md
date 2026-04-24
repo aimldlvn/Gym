@@ -9,11 +9,23 @@ license: Apache-2.0
 compatibility: Requires Python 3.12+ with NeMo Gym installed.
 metadata:
   author: nvidia-nemo-gym
-  version: "1.0"
+  version: "2.0"
 allowed-tools: Bash(ng_*) Read Write Edit Grep Glob
 ---
 
 # NeMo Gym Configuration
+
+## Before you answer — validation checklist
+
+When asked to validate, review, or cross-check a config, do NOT answer from the prompt alone. Always:
+
+1. **Read every file referenced in the request.** Use the Read tool (or `read_file`). The prompt will mention fields that are only verifiable by inspecting the file.
+2. **When two files are given, cross-reference names across both.** List every `${var}` interpolation in the config, then list every top-level key in `env.yaml`, then match them one-to-one. Missing matches are bugs — say so.
+3. **When you cite a reward field or formula, explain what it computes.** `reward_if_quality_low: 0.3` is not self-explanatory — say *what 0.3 means* (partial credit; model output flagged low quality but not unsafe). When a config uses a combined reward, write out the formula (e.g., `reward = safety * quality`) before citing field values.
+4. **When you cite a dataset entry, check both `gitlab_identifier` AND `license` for `train`/`validation` types.** Either missing is a bug; flag both independently.
+5. **When you claim an instance name matches, quote both sides.** Don't say "the reference is correct" — say "`resources_server.name: math_benchmark` matches instance `math_benchmark:` on line 3."
+
+The model's confident-sounding answer is often wrong because it skipped step 1 or 2. Err on the side of re-reading.
 
 ## Config anatomy
 

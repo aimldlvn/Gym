@@ -68,6 +68,22 @@ Configure a second model to score rollouts from `verify()` when ground truth is 
 {bdg-secondary}`verification`
 :::
 
+:::{grid-item-card} {octicon}`beaker;1.5em;sd-mr-1` Evaluating Agent Skills — Part 1: Build the Harness
+:link: skill-eval-harness
+:link-type: doc
+Scaffold the three-server Gym harness (workspace + judge + orchestrator) that grades agent skills via a with-vs-without rollout.
++++
+{bdg-primary}`advanced`
+:::
+
+:::{grid-item-card} {octicon}`graph;1.5em;sd-mr-1` Evaluating Agent Skills — Part 2: Running the Scoreboard
+:link: skill-eval-scoreboard
+:link-type: doc
+Write `evals.json`, generate input JSONL, run the scoreboard, and interpret with-vs-without deltas — including ceiling effects and judge calibration.
++++
+{bdg-primary}`advanced`
+:::
+
 ::::
 
 :::{note}
