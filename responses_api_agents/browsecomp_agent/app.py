@@ -407,9 +407,12 @@ class BrowsecompAgent(SimpleResponsesAPIAgent):
                 # Log the retry: stdout (agent log) + append to the trajectory file of the
                 # just-closed attempt so the next file plus the previous one together tell
                 # the whole story.
+                input_list = getattr(body.responses_create_params, "input", None) or []
+                if isinstance(input_list, str):
+                    input_list = []
                 user_msg_content = next(
                     (m.get("content") if isinstance(m, dict) else getattr(m, "content", "")
-                     for m in body.responses_create_params.get("input", [])
+                     for m in input_list
                      if (m.get("role") if isinstance(m, dict) else getattr(m, "role", None)) == "user"),
                     "",
                 )
