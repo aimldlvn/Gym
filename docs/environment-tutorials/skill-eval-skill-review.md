@@ -1,6 +1,6 @@
-# Skill-by-skill audit — v7 results
+# Skill-by-skill audit — v7 prescriptions, v8 outcomes
 
-Per-skill verdicts, root-cause hypotheses, and prescriptive file-level changes based on the v7 4-cell rollout (n=5, 480 rollouts, post-contamination-fix baseline). Each entry cites the four v7 Δreward effects, the per-scenario breakdown, and specific source files to inspect or edit.
+Per-skill verdicts, root-cause hypotheses, and prescriptive file-level changes based on the v7 4-cell rollout. Each entry cites the four v7 Δreward effects, the per-scenario breakdown, and specific source files to inspect or edit. Three prescriptions were implemented between v7 and v8; those entries include a **v8 outcome** block showing whether the predicted effect landed.
 
 The four effects (see `skill-eval-scoreboard.md` for definitions):
 
@@ -118,6 +118,15 @@ Per-scenario (`skill | refs=T`): sc1 +0.00, sc2 +0.03, sc3 +0.06.
 **Gaps:**
 - The measurable skill value is the tool-call efficiency (−4.87 per rollout). That suggests the SKILL.md is teaching the model to *trust the script* and not explore independently. Which is useful! But we're paying for 110 lines of SKILL.md to teach "run the script" — the same thing could be a 5-line paragraph in the references.
 
+**v8 outcome (prescription implemented in `8fdcdb2c`):** shrunk SKILL.md from 110 → 53 lines. Kept how-to-invoke, severity meanings, affirmative "if clean, approve" framing, and cross-references to anti-patterns.md / fix-patterns.md.
+
+- v8 `skill | refs=T` = +0.048 (v7 +0.029, change within noise — **realistic value preserved**).
+- v8 Δtools on skill+docs = −4.73 (v7 −4.87, efficiency **preserved**).
+- v8 `skill | refs=F` = **+0.012** (v7 +0.298, collapse of **−0.286** — standalone value lost).
+- Provenance diff: `md` only. Clean single-skill attribution.
+
+**Status:** **context-dependent.** Keep the shrink if the deployment model assumes readers always have the repo checked out (then it's a pure win — same realistic effect, shorter doc, same efficiency). Revert or partially-restore if there's a "skill-only, no references" use case to support (e.g., plugin-style delivery of only SKILL.md). This is a product call, not a measurement call.
+
 ---
 
 ## `gym-scaffold-agent` — competes with refs on sc3
@@ -164,6 +173,15 @@ Per-scenario (`skill | refs=T`): sc1 +0.00, sc2 **−0.16**, sc3 **−0.16**.
 **Gaps:**
 - This is a Diátaxis-mode mismatch: how-to (SKILL.md) doing explanation's job (conceptual noun recall). The references are explanation-mode and do this correctly. Rewriting SKILL.md to cross-reference `metrics-guide.md` at each decision point — rather than duplicating content in recipe form — should flip `skill | refs=T` to positive.
 
+**v8 outcome (prescription implemented in `3f3a3300`):** prescription landed. Patterns table expanded to three columns (trigger / cause / confirm-by-reading), with specific field names in the "confirm" column. `pass_threshold` promoted to a named concept subsection.
+
+- v8 `skill | refs=T` = **+0.040** (v7 −0.107, change **+0.147** — outside noise floor).
+- v8 `skill | refs=F` = +0.309 (v7 +0.278, small strengthening within noise).
+- Provenance diff: `md` only. Clean single-skill attribution.
+- Per-scenario: sc2 went from with=0.72/without=0.88 to with=0.96/without=0.92; sc3 from with=0.84/without=1.00 to with=0.96/without=1.00.
+
+**Status:** keep. The "narrate to references" prescription is empirically validated on this skill.
+
 ---
 
 ## `gym-data` — ceiling-clipped; scenarios need rewriting
@@ -190,41 +208,62 @@ Per-scenario (`skill | refs=T`): all near-ceiling (blind=0.88–1.00, docs/skill
   - sc3 replacement: generate examples for a benchmark with a non-obvious schema (multi-turn with branching tool calls; verifier_metadata with nested expected-answer structures).
 - Until scenarios move, this skill is in a measurement dead zone regardless of whether its content is good.
 
+**v8 outcome (prescription implemented in `5e84dd08`):** all three scenarios replaced with adversarial versions. sc1 = 5-entry tool-call schema audit with 4 planted bugs. sc2 = 7-entry semantic mislabel check with 3 wrong gold answers. sc3 = multi-turn branching schema-extension task.
+
+- v8 `skill | refs=T` = **+0.093** (v7 +0.013, change +0.080 — just outside noise floor, **now measurable**).
+- v8 cell means: blind=0.85, docs-only=0.88, skill-only=0.91, skill+docs=0.97 (v7 all 0.96–1.00).
+- `docs-only` dropped below 0.95 — measurement dead-zone is gone.
+- Provenance diff: `evals+fx` only. Clean single-skill attribution.
+
+**Status:** scenarios now interpretable. `blind` only dropped to 0.85 — the new scenarios are harder but still within the model's priors' reach. Even-more-adversarial scenarios could sharpen the measurement further, but the skill is no longer in a measurement dead zone.
+
 ---
 
 ## Cross-cutting patterns and prescriptions
 
 **Where SKILL.md is redundant with references (shrink SKILL.md):**
-- `gym-review` (most severe)
+- `gym-review` — **implemented v7→v8.** Realistic value preserved, standalone collapsed (see v8 outcome block). Context-dependent win.
 
 **Where SKILL.md competes with references (rewrite SKILL.md to narrate to refs):**
-- `gym-profile` (clearest case)
-- `gym-scaffold-agent` (milder)
+- `gym-profile` — **implemented v7→v8.** Prescription validated; realistic flipped from −0.107 to +0.040.
+- `gym-scaffold-agent` — milder case; not yet edited.
 
 **Where scenarios are ceiling-clipped (rewrite evals.json):**
-- `gym-data` (all three)
-- `gym-config` (sc1, sc3)
-- `gym-debug` (sc2, sc3)
+- `gym-data` — **implemented v7→v8.** Measurable headroom recovered (docs-only 0.97 → 0.88).
+- `gym-config` (sc1, sc3) — not yet edited.
+- `gym-debug` (sc2, sc3) — not yet edited.
 - `add-benchmark` (sc3 is actually fine — solved by refs — but consider a new scenario that needs unique skill knowledge)
 
 **Where the skill has real content gaps (add new material):**
-- `gym-scaffold-agent` — missing non-RL agent patterns (evaluation, orchestration)
-- `gym-scaffold-agent` — missing "how to recognize correct code" heuristic
+- `gym-scaffold-agent` — missing non-RL agent patterns (evaluation, orchestration). Still open.
+- `gym-scaffold-agent` — missing "how to recognize correct code" heuristic. Still open.
 
 **Where the skill is load-bearing as-written:**
 - `gym-run` (keep)
 - `add-benchmark` (keep)
 - `gym-config` (keep, but write harder scenarios)
 
-**Skills that would benefit most from a post-edit remeasurement:**
-1. `gym-profile` — rewrite SKILL.md patterns table, expect `skill | refs=T` to go from −0.107 to near-zero or positive. Cleanest test of the narrate-to-references prescription.
-2. `gym-review` — shrink SKILL.md; expect `skill | refs=T` to stay near zero (it's the floor), but also expect no loss. That proves the skill body was dead weight.
-3. `gym-data` — write harder scenarios, expect `docs-only` to drop below 0.95, opening measurable headroom for the skill to be evaluated.
+### v7 → v8 results on the three prescriptions
+
+| skill | prescription | predicted direction | observed | verdict |
+|---|---|---|---|---|
+| `gym-profile` | rewrite patterns table inline | `skill \| refs=T` → 0 or positive | −0.107 → **+0.040** | **hit** |
+| `gym-review` | shrink SKILL.md | `skill \| refs=T` flat, no regression | +0.029 → +0.048 (flat) | realistic hit; standalone collapse |
+| `gym-data` | adversarial scenarios | `docs-only` < 0.95 | 0.97 → **0.88** | hit |
+
+Two outright hits, one caveated hit. The framework for turning v7 cell-level observations into single-skill editable prescriptions generated three testable predictions, all of which landed in the predicted direction with clean provenance attribution. The caveat on gym-review (standalone value lost) was a surprise — the audit predicted the shrink would be a clean win and it isn't on every cell.
+
+### Remaining prescriptions (not yet implemented)
+
+1. `gym-scaffold-agent` — add non-RL agent pattern coverage. Expected: `skill | refs=T` moves from −0.040 to at least +0.05 on scenarios that test the new material. Requires writing new SKILL.md content AND at least one new scenario that tests it.
+2. `gym-config` sc1/sc3 — harder scenarios. Expected: `docs-only` drops below 0.95 on those scenarios, revealing whether the skill adds value there.
+3. `gym-debug` sc2/sc3 — harder scenarios, same pattern as gym-config.
 
 ## Prerequisites for trusting these recommendations
 
-All of the above rests on v7 (n=5, 480 rollouts) as a single measurement. Before shipping any large skill rewrites:
+v8 confirmed two of three prescriptions outright. Before shipping further edits:
 
-1. **Calibration run at n=20** on one cell (e.g., `gym-profile sc2 skill+docs`) to confirm effect sizes are outside noise.
-2. **One edit at a time.** Rewriting gym-profile's patterns table AND gym-review's SKILL.md in the same run confounds attribution.
-3. **Post-edit diff must show the right provenance tag.** If the prescription is "rewrite SKILL.md for gym-profile," the diff should flag `md` as the change for exactly that skill and `—` (same-all) for every other skill. Anything else is a confound.
+1. **Calibration run at n=20** on one cell (e.g., `gym-profile sc2 skill+docs`) to pin down detectable effect size. v8 same-all drifts of −0.084 (gym-config) and +0.093 (gym-scaffold-agent) show that n=5 can't resolve effects near the noise floor.
+2. **One edit at a time** — validated in v7→v8: three skills edited, three clean `md` / `evals+fx` provenance tags on exactly those skills, `same-all` on every other skill. The discipline works; keep doing it.
+3. **Post-edit diff must show the right provenance tag.** If the prescription is "rewrite SKILL.md for gym-X," the diff should flag `md` as the change for exactly that skill and `—` (same-all) for every other skill. Anything else is a confound.
+4. **On shrinks specifically**, measure the standalone contrast too. gym-review showed that a SKILL.md shrink can preserve realistic value while collapsing standalone value — if both cells matter for your deployment model, check both before shipping.
