@@ -1,11 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Prepare MMLU-Redux 2.0 benchmark data for NeMo Gym (mcqa).
+"""Prepare MMLU-Redux 2.0 for NeMo Gym.
 
-Ports NeMo-Skills' ``mmlu-redux`` benchmark (``edinburgh-dawg/mmlu-redux-2.0``).
-Strategy adapted from ZeroEval / NeMo-Skills ``format_entry`` logic.
+Logic matches NeMo-Skills ``nemo_skills/dataset/mmlu-redux/prepare.py`` (including
+``format_entry`` / ``get_mcq_fields``). Rows are then mapped to Gym ``mcqa`` JSONL
+(``question``, ``options_text``, ``options``, ``uuid``).
 """
 
+import argparse
 import json
 import uuid
 from pathlib import Path
@@ -14,8 +16,9 @@ from datasets import load_dataset
 from tqdm.auto import tqdm
 
 
-# From https://github.com/hendrycks/test/blob/master/categories.py (NeMo-Skills / Hendrycks MMLU).
-MMLU_SUBJECT_TO_CATEGORY: dict[str, list[str]] = {
+# mmlu subcategories from https://github.com/hendrycks/test/blob/master/categories.py
+# (same as NeMo-Skills ``mmlu-redux/prepare.py``).
+subcategories = {
     "abstract_algebra": ["math"],
     "anatomy": ["health"],
     "astronomy": ["physics"],
@@ -75,61 +78,83 @@ MMLU_SUBJECT_TO_CATEGORY: dict[str, list[str]] = {
     "world_religions": ["philosophy"],
 }
 
-MMLU_SUBJECTS: tuple[str, ...] = tuple(MMLU_SUBJECT_TO_CATEGORY.keys())
+
+def get_mcq_fields(question: str, choices: list) -> dict:
+    """Same as NeMo-Skills ``nemo_skills/dataset/utils.get_mcq_fields``."""
+    options_dict = {chr(ord("A") + i): option for i, option in enumerate(choices)}
+    options_text = "\n".join(f"{letter}) {option}" for letter, option in options_dict.items())
+    question = question.strip("\n")
+    return {
+        "problem": f"{question}\n\n{options_text}",
+        "options": options_text,
+        **options_dict,
+    }
+
+
+# dataset preparing strategy adapted from ZeroEval (NeMo-Skills ``format_entry``).
+def format_entry(entry: dict, category: str) -> dict | None:
+    if entry["error_type"] == "ok":
+        final_answer = chr(65 + int(entry["answer"]))
+    elif entry["error_type"] == "wrong_groundtruth" and entry["correct_answer"] in list("ABCD"):
+        final_answer = "correct_answer"
+    else:
+        return None
+    return {
+        "expected_answer": final_answer,
+        "subset_for_metrics": subcategories[category][0],
+        "subcategory": category,
+        "source": entry["source"],
+        **get_mcq_fields(entry["question"], entry["choices"]),
+    }
+
+
+def _to_gym_row(entry: dict, category: str, ne: dict) -> dict:
+    """NeMo jsonl row -> Gym ``mcqa`` row (prompt uses stem + options_text)."""
+    letters = ["A", "B", "C", "D"]
+    choices = entry["choices"]
+    mcq = get_mcq_fields(entry["question"], entry["choices"])
+    stem = entry["question"].strip()
+    options = [{letters[i]: str(choices[i])} for i in range(4)]
+    seed = json.dumps({"category": category, "question": stem, "answer": ne["expected_answer"]}, sort_keys=True)
+    row_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, seed))
+    return {
+        "question": stem,
+        "options_text": mcq["options"],
+        "options": options,
+        "expected_answer": ne["expected_answer"],
+        "subset_for_metrics": ne["subset_for_metrics"],
+        "subcategory": ne["subcategory"],
+        "source": ne["source"],
+        "uuid": row_uuid,
+    }
+
 
 BENCHMARK_DIR = Path(__file__).parent
 DATA_DIR = BENCHMARK_DIR / "data"
 OUTPUT_FPATH = DATA_DIR / "mmlu-redux_benchmark.jsonl"
 
-HF_REPO = "edinburgh-dawg/mmlu-redux-2.0"
 
-
-def format_entry(entry: dict, category: str) -> dict | None:
-    if entry["error_type"] == "ok":
-        final_answer = chr(65 + int(entry["answer"]))
-    elif entry["error_type"] == "wrong_groundtruth" and entry["correct_answer"] in list("ABCD"):
-        # NeMo-Skills had a typo ("correct_answer" literal); use the dataset's correct letter.
-        final_answer = str(entry["correct_answer"]).strip().upper()
-    else:
-        return None
-
-    choices = entry["choices"]
-    if len(choices) != 4:
-        return None
-    letters = ["A", "B", "C", "D"]
-    options = [{letters[i]: str(choices[i])} for i in range(4)]
-    options_text = "\n".join(f"{letters[i]}) {choices[i]}" for i in range(4))
-    stem = (entry.get("question") or "").strip()
-    seed = json.dumps({"category": category, "question": stem, "answer": final_answer}, sort_keys=True)
-    row_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, seed))
-    subset = MMLU_SUBJECT_TO_CATEGORY[category][0]
-    return {
-        "question": stem,
-        "options_text": options_text,
-        "options": options,
-        "expected_answer": final_answer,
-        "subset_for_metrics": subset,
-        "subject": category,
-        "uuid": row_uuid,
-    }
-
-
-def prepare() -> Path:
+def prepare(split: str = "test") -> Path:
+    if split != "test":
+        raise ValueError("Gym benchmark config only supports split=test (NeMo-Skills only exposes test).")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     count = 0
     with OUTPUT_FPATH.open("w", encoding="utf-8") as fout:
-        for category in tqdm(MMLU_SUBJECTS, desc="MMLU-Redux categories"):
-            dataset = load_dataset(HF_REPO, name=category, split="test")
+        for category in tqdm(subcategories, desc="MMLU-Redux categories"):
+            dataset = load_dataset("edinburgh-dawg/mmlu-redux-2.0", name=category, split="test")
             for entry in dataset:
-                row = format_entry(entry, category)
-                if row is None:
+                ne = format_entry(entry, category)
+                if ne is None:
                     continue
-                fout.write(json.dumps(row, ensure_ascii=False) + "\n")
+                gym = _to_gym_row(entry, category, ne)
+                fout.write(json.dumps(gym, ensure_ascii=False) + "\n")
                 count += 1
-
     print(f"Wrote {count} problems to {OUTPUT_FPATH}")
     return OUTPUT_FPATH
 
 
 if __name__ == "__main__":
-    prepare()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--split", default="test", choices=["test"], help="Dataset split (NeMo-Skills: test only).")
+    args = parser.parse_args()
+    prepare(split=args.split)

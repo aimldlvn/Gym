@@ -1,59 +1,82 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Prepare MMMU-Pro (vision) benchmark data for NeMo Gym.
+"""Prepare MMMU-Pro for NeMo Gym.
 
-Ports NeMo-Skills' ``mmmu-pro`` dataset preparation. Images are written under
-``data/media/<id>/`` and JSONL rows embed lightweight ``verifier_metadata.media_dir``
-for ``labbench2_vlm_agent`` to inject ``input_image`` blocks at rollout time.
-Verification uses the ``mcqa`` resource server (letter match, ``Answer:`` / markdown).
+``format_entry`` matches NeMo-Skills ``nemo_skills/dataset/mmmu-pro/prepare.py``.
+Adds Gym-only fields for ``labbench2_vlm_agent`` + ``mcqa``: each sample gets a
+unique subdirectory under ``data/images/<safe_id>/`` with ``question.png`` (moved
+from NeMo's flat ``images/<id>.png`` so the embedder loads one image per row).
 """
 
 import ast
 import json
-import uuid
+import re
+import shutil
 from pathlib import Path
 
 from nemo_gym.global_config import HF_TOKEN_KEY_NAME, get_global_config_dict
 
 
-BENCHMARK_DIR = Path(__file__).parent
-DATA_DIR = BENCHMARK_DIR / "data"
-MEDIA_ROOT = DATA_DIR / "media"
-OUTPUT_FPATH = DATA_DIR / "mmmu-pro_benchmark.jsonl"
+def get_mcq_fields(question: str, choices: list) -> dict:
+    """Same as NeMo-Skills ``nemo_skills/dataset/utils.get_mcq_fields``."""
+    options_dict = {chr(ord("A") + i): option for i, option in enumerate(choices)}
+    options_text = "\n".join(f"{letter}) {option}" for letter, option in options_dict.items())
+    question = question.strip("\n")
+    return {
+        "problem": f"{question}\n\n{options_text}",
+        "options": options_text,
+        **options_dict,
+    }
 
 
-def _mcq_problem_from_options(options: list[str]) -> str:
-    letters = [chr(ord("A") + i) for i in range(len(options))]
-    lines = [f"{letters[i]}) {options[i]}" for i in range(len(options))]
-    return "\n\n".join(lines)
-
-
-def format_entry(entry: dict, images_root: Path) -> dict | None:
-    if entry.get("image") is None:
+def format_entry(entry: dict, images_dir: Path) -> dict | None:
+    """NeMo-Skills ``mmmu-pro/prepare.format_entry``."""
+    if entry["image"] is None:
         return None
 
-    media_key = str(uuid.uuid4())
-    media_dir = images_root / media_key
-    media_dir.mkdir(parents=True, exist_ok=True)
-    image_filename = "question.png"
-    image_path = media_dir / image_filename
+    image_filename = f"{entry['id']}.png"
+    image_path = images_dir / image_filename
     entry["image"].save(image_path)
 
-    options_list = ast.literal_eval(entry["options"])
-    options_text = _mcq_problem_from_options(options_list)
+    options = ast.literal_eval(entry["options"])
+    mcq_fields = get_mcq_fields("", options)
+    subject = entry["subject"].replace(" ", "_")
+
+    return {
+        "problem": mcq_fields["problem"],
+        "image_path": f"images/{image_filename}",
+        "expected_answer": entry["answer"],
+        "subset_for_metrics": subject,
+        "id": entry["id"],
+        "_options_list": options,
+    }
+
+
+def _safe_fs_id(raw_id) -> str:
+    return re.sub(r"[^a-zA-Z0-9._-]+", "_", str(raw_id))
+
+
+def _to_gym_row(ne: dict, images_dir: Path) -> dict:
+    """NeMo row -> Gym JSONL."""
+    safe = _safe_fs_id(ne["id"])
+    flat = images_dir / f"{ne['id']}.png"
+    per_dir = images_dir / safe
+    per_dir.mkdir(parents=True, exist_ok=True)
+    dest = per_dir / "question.png"
+    if flat.exists():
+        shutil.move(str(flat), str(dest))
+
+    options_list = ne["_options_list"]
     letters = [chr(ord("A") + i) for i in range(len(options_list))]
     options = [{letters[i]: options_list[i]} for i in range(len(options_list))]
-    subject = str(entry["subject"]).replace(" ", "_")
-    letter = str(entry["answer"]).strip().upper()
-    stem = (entry.get("question") or "").strip()
-    problem = f"{stem}\n\n{options_text}".strip()
+    letter = str(ne["expected_answer"]).strip().upper()
     user_text = (
         "Answer the following multiple choice question. The last line of your response "
         "should be in the following format: 'Answer: A/B/C/D/E/F/G/H/I/J' (e.g. 'Answer: A').\n\n"
-        f"{problem}"
+        f"{ne['problem']}"
     )
 
-    return {
+    out = {
         "responses_create_params": {
             "input": [
                 {
@@ -62,13 +85,22 @@ def format_entry(entry: dict, images_root: Path) -> dict | None:
                 }
             ]
         },
-        "verifier_metadata": {"media_dir": (Path("media") / media_key).as_posix()},
+        "verifier_metadata": {"media_dir": (Path("images") / safe).as_posix()},
         "options": options,
         "expected_answer": letter,
         "grading_mode": "lenient_answer_colon_md",
-        "subset_for_metrics": subject,
-        "id": entry.get("id"),
+        "subset_for_metrics": ne["subset_for_metrics"],
+        "id": ne["id"],
+        "image_path": ne["image_path"],
+        "problem": ne["problem"],
     }
+    return out
+
+
+BENCHMARK_DIR = Path(__file__).parent
+DATA_DIR = BENCHMARK_DIR / "data"
+IMAGES_DIR = DATA_DIR / "images"
+OUTPUT_FPATH = DATA_DIR / "mmmu-pro_benchmark.jsonl"
 
 
 def prepare() -> Path:
@@ -77,7 +109,7 @@ def prepare() -> Path:
 
     hf_token = get_global_config_dict().get(HF_TOKEN_KEY_NAME)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
+    IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
     print("Loading MMMU/MMMU_Pro vision test split...")
     dataset = load_dataset("MMMU/MMMU_Pro", "vision", split="test", token=hf_token)
@@ -85,9 +117,10 @@ def prepare() -> Path:
     count = 0
     with OUTPUT_FPATH.open("w", encoding="utf-8") as fout:
         for entry in tqdm(dataset, desc="MMMU-Pro"):
-            row = format_entry(entry, MEDIA_ROOT)
-            if row is None:
+            ne = format_entry(entry, IMAGES_DIR)
+            if ne is None:
                 continue
+            row = _to_gym_row(ne, IMAGES_DIR)
             fout.write(json.dumps(row, ensure_ascii=False) + "\n")
             count += 1
 
