@@ -84,8 +84,15 @@ OUTPUT_FPATH = DATA_DIR / "mmlu_benchmark.jsonl"
 HF_CANDIDATES = ("lukaemon/mmlu", "cais/mmlu")
 
 
+def _load_dataset_kwargs(repo_id: str) -> dict:
+    """``lukaemon/mmlu`` ships a dataset script (Hendrycks tarball) and needs trust_remote_code."""
+    if repo_id == "lukaemon/mmlu":
+        return {"trust_remote_code": True}
+    return {}
+
+
 def _load_mmlu_subject(repo_id: str, subject: str):
-    return load_dataset(repo_id, subject, split="test")
+    return load_dataset(repo_id, subject, split="test", **_load_dataset_kwargs(repo_id))
 
 
 def _find_hf_repo() -> str:
@@ -99,14 +106,41 @@ def _find_hf_repo() -> str:
     raise RuntimeError(f"Could not load MMLU from {HF_CANDIDATES}: {last_err}")
 
 
-def _row_from_example(subject: str, ex: dict, letter: str) -> dict:
-    choices = ex["choices"]
+def _normalize_hf_row(ex: dict) -> tuple[str, list[str], str]:
+    """Return ``(question_stem, [four choice strings], answer_letter)`` for different HF MMLU layouts.
+
+    - ``lukaemon/mmlu`` (script): ``input``, ``A``..``D``, ``target`` (letter).
+    - Other mirrors often use: ``question``, ``choices`` (list), ``answer`` (index or letter).
+    """
+    if "input" in ex and "target" in ex and all(k in ex for k in ("A", "B", "C", "D")):
+        stem = str(ex["input"]).strip()
+        choices = [str(ex[k]) for k in ("A", "B", "C", "D")]
+        letter = str(ex["target"]).strip().upper()
+        if len(letter) != 1 or letter not in "ABCD":
+            raise ValueError(f"Unexpected target label: {letter!r}")
+        return stem, choices, letter
+
+    if "choices" in ex and "answer" in ex:
+        stem = str(ex.get("question") or ex.get("input") or "").strip()
+        choices = [str(c) for c in ex["choices"]]
+        if len(choices) != 4:
+            raise ValueError(f"Expected 4 choices, got {len(choices)}")
+        ans = ex["answer"]
+        if isinstance(ans, str) and len(ans) == 1 and ans.upper() in "ABCD":
+            letter = ans.upper()
+        else:
+            letter = chr(ord("A") + int(ans))
+        return stem, choices, letter
+
+    raise ValueError(f"Unknown MMLU row schema; keys={sorted(ex.keys())}")
+
+
+def _row_from_parts(subject: str, stem: str, choices: list[str], letter: str) -> dict:
     if len(choices) != 4:
         raise ValueError(f"Expected 4 choices for {subject}, got {len(choices)}")
     letters = ["A", "B", "C", "D"]
     options = [{letters[i]: choices[i]} for i in range(4)]
     options_text = "\n".join(f"{letters[i]}) {choices[i]}" for i in range(4))
-    stem = (ex.get("question") or "").strip()
     seed = json.dumps({"subject": subject, "question": stem, "answer": letter}, sort_keys=True)
     row_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, seed))
     subset = MMLU_SUBJECT_TO_CATEGORY[subject][0]
@@ -132,9 +166,8 @@ def prepare() -> Path:
         for subject in tqdm(MMLU_SUBJECTS, desc="MMLU subjects"):
             ds = _load_mmlu_subject(repo, subject)
             for ex in ds:
-                ans_idx = ex["answer"]
-                letter = chr(ord("A") + int(ans_idx))
-                row = _row_from_example(subject, ex, letter)
+                stem, choices, letter = _normalize_hf_row(ex)
+                row = _row_from_parts(subject, stem, choices, letter)
                 fout.write(json.dumps(row, ensure_ascii=False) + "\n")
                 count += 1
 
