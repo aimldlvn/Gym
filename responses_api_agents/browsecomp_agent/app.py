@@ -148,7 +148,9 @@ class BrowsecompAgent(SimpleResponsesAPIAgent):
                 missing_end_think_count += 1
 
                 if step % 10 == 0:
-                    print(f"Step {step} | Time {time() - time_taken:.2f}s")
+                    print(
+                        f"Step {step} | Time: {time() - time_taken:.2f}s | Missing end thinks count: {missing_end_think_count}"
+                    )
 
             output = model_response.output
             new_outputs.extend(output)
