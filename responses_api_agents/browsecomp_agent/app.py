@@ -15,6 +15,7 @@
 import json
 import re
 from pathlib import Path
+from time import time
 from typing import List, Optional
 
 from fastapi import Request, Response
@@ -105,6 +106,7 @@ class BrowsecompAgent(SimpleResponsesAPIAgent):
 
         missing_end_think_count = 0
 
+        time_taken = time()
         while True:
             step += 1
 
@@ -144,6 +146,9 @@ class BrowsecompAgent(SimpleResponsesAPIAgent):
 
                 print(f"A model call is missing the end think ({missing_end_think_count} for this sample)")
                 missing_end_think_count += 1
+
+                if step % 10 == 0:
+                    print(f"Step {step} | Time {time() - time_taken:.2f}s")
 
             output = model_response.output
             new_outputs.extend(output)
