@@ -144,8 +144,8 @@ class BrowsecompAgent(SimpleResponsesAPIAgent):
                 ) and (cleaned_output_text or any(o for o in model_response.output if o.type == "function_call")):
                     break
 
-                print(f"A model call is missing the end think ({missing_end_think_count} for this sample)")
                 missing_end_think_count += 1
+                print(f"A model call is missing the end think ({missing_end_think_count} for this sample)")
 
             output = model_response.output
             new_outputs.extend(output)
