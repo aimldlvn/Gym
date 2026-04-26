@@ -103,6 +103,8 @@ class BrowsecompAgent(SimpleResponsesAPIAgent):
         if self.config.max_context_tokens and self.config.context_reset_pct:
             reset_threshold = int(self.config.max_context_tokens * self.config.context_reset_pct)
 
+        missing_end_think_count = 0
+
         while True:
             step += 1
 
@@ -113,28 +115,42 @@ class BrowsecompAgent(SimpleResponsesAPIAgent):
             if not body.metadata:
                 new_body = new_body.model_dump(exclude={"metadata"}, exclude_none=True)
 
-            model_response = await self.server_client.post(
-                server_name=self.config.model_server.name,
-                url_path="/v1/responses",
-                json=new_body,
-                cookies=model_server_cookies,
-            )
-            # We raise for status here since we expect model calls to always work.
-            await raise_for_status(model_response)
-            model_response_json = await get_response_json(model_response)
-            model_server_cookies = model_response.cookies
-            try:
-                model_response = NeMoGymResponse.model_validate(model_response_json)
-            except ValidationError as e:
-                raise RuntimeError(
-                    f"Received an invalid response from model server: {json.dumps(model_response_json)}"
-                ) from e
+            for _ in range(self.config.max_run_retries):
+                model_response = await self.server_client.post(
+                    server_name=self.config.model_server.name,
+                    url_path="/v1/responses",
+                    json=new_body,
+                    cookies=model_server_cookies,
+                )
+                # We raise for status here since we expect model calls to always work.
+                await raise_for_status(model_response)
+                model_response_json = await get_response_json(model_response)
+                model_server_cookies = model_response.cookies
+                try:
+                    model_response = NeMoGymResponse.model_validate(model_response_json)
+                except ValidationError as e:
+                    raise RuntimeError(
+                        f"Received an invalid response from model server: {json.dumps(model_response_json)}"
+                    ) from e
+
+                # Retry if the model only produced <think> content with no final answer.
+                raw_output_text = model_response.output_text
+                cleaned_output_text = re.sub(r"<think>.*?</think>", "", raw_output_text, flags=re.DOTALL).strip()
+                if not model_response.incomplete_details and (
+                    cleaned_output_text or any(o for o in model_response.output if o.type == "function_call")
+                ):
+                    break
+
+                print(f"A model call is missing the end think ({missing_end_think_count} for this sample)")
+                missing_end_think_count += 1
 
             # --- Check context reset threshold ---
-            prompt_tokens = model_response.usage.input_tokens if model_response.usage else 0
+            total_tokens = (
+                (model_response.usage.input_tokens + model_response.usage.output_tokens) if model_response.usage else 0
+            )
             if (
                 reset_threshold
-                and prompt_tokens > reset_threshold
+                and total_tokens > reset_threshold
                 and (max_reset_count is None or reset_count < max_reset_count)
             ):
                 reset_count += 1
@@ -170,7 +186,7 @@ class BrowsecompAgent(SimpleResponsesAPIAgent):
                 usage.input_tokens_details.cached_tokens = 0
                 usage.output_tokens_details.reasoning_tokens = 0
 
-            if model_response.incomplete_details and model_response.incomplete_details.reason == "max_output_tokens":
+            if model_response.incomplete_details:
                 break
 
             # --- If the model decided to answer (no tool calls), we are done ---
@@ -264,6 +280,7 @@ class BrowsecompAgent(SimpleResponsesAPIAgent):
         model_response.usage = usage
         model_response.reset_count = reset_count
         model_response.num_tool_calls = num_tool_calls
+        model_response.metadata = {"missing_end_think_count": str(missing_end_think_count)}
         return model_response
 
     async def run(self, request: Request, body: BrowsecompAgentRunRequest) -> BrowsecompAgentVerifyResponse:
@@ -278,49 +295,37 @@ class BrowsecompAgent(SimpleResponsesAPIAgent):
         await raise_for_status(seed_session_response)
         cookies = seed_session_response.cookies
 
-        last_verify_response = None
-        for attempt in range(self.config.max_run_retries):
-            # prepare for recording
-            if self.config.snap_dir:
-                body.responses_create_params.metadata = dict(body.responses_create_params.metadata or {})
-                body.responses_create_params.metadata["task_index"] = str(body._ng_task_index)
-                body.responses_create_params.metadata["attempt"] = str(attempt)
+        # prepare for recording
+        if self.config.snap_dir:
+            body.responses_create_params.metadata = dict(body.responses_create_params.metadata or {})
+            body.responses_create_params.metadata["task_index"] = str(body._ng_task_index)
+            body.responses_create_params.metadata["attempt"] = str(0)
 
-            response = await self.server_client.post(
-                server_name=self.config.name,
-                url_path="/v1/responses",
-                json=body.responses_create_params,
-                cookies=cookies,
-            )
-            await raise_for_status(response)
-            cookies = response.cookies
+        response = await self.server_client.post(
+            server_name=self.config.name,
+            url_path="/v1/responses",
+            json=body.responses_create_params,
+            cookies=cookies,
+        )
+        await raise_for_status(response)
+        cookies = response.cookies
 
-            # Retry if the model only produced <think> content with no final answer.
-            response_json = await get_response_json(response)
-            raw_output_text = NeMoGymResponse.model_validate(response_json).output_text
-            cleaned_output_text = re.sub(r"<think>.*?</think>", "", raw_output_text, flags=re.DOTALL).strip()
-            # Need to get last_verify_response if all attempts are exhausted
-            if not cleaned_output_text and attempt != self.config.max_run_retries - 1:
-                continue
+        response_json = await get_response_json(response)
 
-            verify_request = BrowsecompAgentVerifyRequest.model_validate(
-                body.model_dump() | {"response": response_json}
-            )
+        verify_request = BrowsecompAgentVerifyRequest.model_validate(body.model_dump() | {"response": response_json})
 
-            verify_response = await self.server_client.post(
-                server_name=self.config.resources_server.name,
-                url_path="/verify",
-                json=verify_request.model_dump(),
-                cookies=cookies,
-            )
-            await raise_for_status(verify_response)
+        verify_response = await self.server_client.post(
+            server_name=self.config.resources_server.name,
+            url_path="/verify",
+            json=verify_request.model_dump(),
+            cookies=cookies,
+        )
+        await raise_for_status(verify_response)
 
-            last_verify_response = BrowsecompAgentVerifyResponse.model_validate(
-                await get_response_json(verify_response)
-            )
-            break
-
-        return last_verify_response
+        return BrowsecompAgentVerifyResponse.model_validate(
+            await get_response_json(verify_response)
+            | {"missing_end_think_count": response_json["metadata"]["missing_end_think_count"]}
+        )
 
     async def aggregate_metrics(self, body: AggregateMetricsRequest = Body()) -> AggregateMetrics:
         """Proxy aggregate_metrics to the resources server."""
