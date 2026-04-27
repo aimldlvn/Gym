@@ -34,7 +34,9 @@ from nemo_gym.base_responses_api_agent import (
     SimpleResponsesAPIAgent,
 )
 from nemo_gym.config_types import ModelServerRef, ResourcesServerRef
+from nemo_gym.global_config import get_first_server_config_dict, get_global_config_dict
 from nemo_gym.openai_utils import (
+    NeMoGymAsyncOpenAI,
     NeMoGymEasyInputMessage,
     NeMoGymFunctionCallOutput,
     NeMoGymResponse,
@@ -43,6 +45,7 @@ from nemo_gym.openai_utils import (
     NeMoGymResponseOutputMessage,
 )
 from nemo_gym.server_utils import get_response_json, raise_for_status
+from responses_api_models.vllm_model.app import VLLMConverter
 
 
 class BrowsecompAgentConfig(BaseResponsesAPIAgentConfig):
@@ -57,6 +60,7 @@ class BrowsecompAgentConfig(BaseResponsesAPIAgentConfig):
     max_reset_count: Optional[int] = None
     max_run_retries: int = 1
     snap_dir: Optional[str] = None
+    save_model_call_using_vllm_tokenize_endpoint: bool = False
 
 
 class BrowsecompAgentRunRequest(BaseRunRequest):
@@ -73,6 +77,27 @@ class BrowsecompAgentVerifyResponse(BaseVerifyResponse):
 
 class BrowsecompAgent(SimpleResponsesAPIAgent):
     config: BrowsecompAgentConfig
+
+    _policy_model_openai_client: Optional[NeMoGymAsyncOpenAI] = None
+
+    def setup_webserver(self):
+        res = super().setup_webserver()
+
+        if self.config.save_model_call_using_vllm_tokenize_endpoint:
+            global_config = get_global_config_dict()
+            policy_model_config_dict = get_first_server_config_dict(global_config, self.config.model_server.name)
+
+            # The logic below is fixed to only vllm_model! Other models like openai_model and local_vllm_model don't work.
+
+            # Just call the first base_url endpoint with the tokenize request.
+            base_urls = policy_model_config_dict["base_url"]
+            base_url = base_urls if isinstance(base_urls, str) else base_urls[0]
+
+            self._policy_model_openai_client = NeMoGymAsyncOpenAI(
+                base_url=base_url, api_key=policy_model_config_dict["api_key"]
+            )
+
+        return res
 
     async def responses(
         self,
@@ -116,8 +141,48 @@ class BrowsecompAgent(SimpleResponsesAPIAgent):
                 new_outputs = self._compact_old_tool_messages(new_outputs)
 
             new_body = body.model_copy(update={"input": body.input + new_outputs})
-            if not body.metadata:
-                new_body = new_body.model_dump(exclude={"metadata"}, exclude_none=True)
+
+            """
+            The logic below will call the model endpoint and generate until the end, and then check for compaction.
+            Here, for vLLM models specifically, we will call the underlying /tokenize endpoint which is much faster than waiting for an entire model call to resolve.
+            This violates Gym's abstractions since there doesn't exist a /tokenize endpoint on OpenAI model endpoints.
+            This logic also assumes an underlying Chat Completions model (not compatible with Responses native models)
+            """
+            if self.config.save_model_call_using_vllm_tokenize_endpoint:
+                converter = VLLMConverter(return_token_id_information=False)
+                chat_completion_create_params = converter.responses_to_chat_completion_create_params(new_body)
+
+                # Taken from https://github.com/NVIDIA-NeMo/Gym/blob/9e447f7844d4f6a627039609c862acb80a045261/responses_api_models/vllm_model/app.py#L384
+                tokenize_body_dict = dict()
+                for key in ("model", "messages", "tools", "chat_template_kwargs"):
+                    if key in chat_completion_create_params:
+                        tokenize_body_dict[key] = chat_completion_create_params[key]
+
+                tokenize_response = await self._policy_model_openai_client.create_tokenize(**tokenize_body_dict)
+
+                prompt_tokens_ids = tokenize_response["tokens"]
+                prompt_tokens = len(prompt_tokens_ids)
+                if (
+                    reset_threshold
+                    and prompt_tokens > reset_threshold
+                    and (max_reset_count is None or reset_count < max_reset_count)
+                ):
+                    reset_count += 1
+                    # record current context
+                    if self.config.snap_dir:
+                        self._save_snapshot(
+                            messages=body.input + new_outputs,
+                            task_index=task_index,
+                            attempt=attempt,
+                            reset_count=reset_count,
+                            is_final=False,
+                        )
+                    # reset context
+                    if self.config.context_reset_keep_rounds > 0:
+                        new_outputs = self._extract_last_rounds(new_outputs)
+                    else:
+                        new_outputs = []
+                    continue
 
             time_taken_model_call -= time()
             returned_valid_response = False
