@@ -14,6 +14,7 @@
 # limitations under the License.
 import importlib.metadata
 import os
+import shlex
 from os import environ
 from pathlib import Path
 from subprocess import Popen
@@ -167,7 +168,23 @@ def setup_env_command(dir_path: Path, global_config_dict: DictConfig, prefix: st
             )
 
         prefix_cmd = f" > >(sed 's/^/({prefix}) /') 2> >(sed 's/^/({prefix}) /' >&2)"
-        env_setup_cmd = f"{uv_venv_cmd}{prefix_cmd} && source {venv_activate_fpath} && {install_cmd}{prefix_cmd}"
+        # Multiple server instances can share a server-type directory (e.g., several
+        # `vllm_model` servers) and therefore the same target `.venv`. Concurrent
+        # `uv venv --seed --allow-existing` invocations on the same target dir race
+        # during pip-seed install/uninstall and crash with
+        #   Failed to uninstall build dependencies
+        #   Cannot uninstall package; `RECORD` file not found at:
+        #     .venv/lib/python3.12/site-packages/pip-26.0.1.dist-info/RECORD
+        # Serialize venv setup with `flock` keyed on a lockfile next to the venv;
+        # re-source the activate script after the lock so the python entrypoint
+        # downstream still inherits the venv in the parent shell.
+        lock_path = f"{venv_path}.lock"
+        inner_setup = f"{uv_venv_cmd}{prefix_cmd} && source {venv_activate_fpath} && {install_cmd}{prefix_cmd}"
+        env_setup_cmd = (
+            f"mkdir -p {shlex.quote(str(venv_path.parent))}"
+            f" && flock -x {shlex.quote(lock_path)} bash -c {shlex.quote(inner_setup)}"
+            f" && source {venv_activate_fpath}"
+        )
 
     return f"cd {dir_path} && {env_setup_cmd}"
 
