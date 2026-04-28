@@ -1,5 +1,5 @@
 instances:
-  - url: https://gym.docs.buildwithfern.com/nemo/gym
+  - url: gym.docs.buildwithfern.com/nemo/gym
     custom-domain: docs.nvidia.com/nemo/gym
 
 check:
@@ -65,6 +65,7 @@ libraries:
 experimental:
   mdx-components:
     - ./components
+  basepath-aware: true
 
 versions:
   - display-name: Latest
