@@ -48,31 +48,55 @@ ITERATIONS=$((MAX_WAIT / POLL_INTERVAL))
 ALL_READY="false"
 
 for i in $(seq 1 "$ITERATIONS"); do
-  URLS=$(curl -s "${HEAD_URL}/server_instances" | python3 -c "
+  RAW_RESPONSE=$(curl -s "${HEAD_URL}/server_instances" 2>&1) || true
+  URLS=$(echo "$RAW_RESPONSE" | python3 -c "
 import json, sys
-instances = json.load(sys.stdin)
-print(' '.join(inst['url'] for inst in instances if inst.get('url')))" 2>/dev/null)
+try:
+    instances = json.load(sys.stdin)
+    if not isinstance(instances, list):
+        print('ERROR: expected list, got ' + type(instances).__name__, file=sys.stderr)
+        sys.exit(1)
+    urls = [inst['url'] for inst in instances if inst.get('url')]
+    if not urls:
+        print('ERROR: no urls found in server_instances response', file=sys.stderr)
+        sys.exit(1)
+    print(' '.join(urls))
+except (json.JSONDecodeError, KeyError) as e:
+    print(f'ERROR: failed to parse /server_instances: {e}', file=sys.stderr)
+    sys.exit(1)" 2>&1)
 
-  if [ -n "$URLS" ]; then
-    READY=0
-    TOTAL=0
-    for url in $URLS; do
-      TOTAL=$((TOTAL + 1))
-      if curl -sf "$url/docs" > /dev/null 2>&1; then
-        READY=$((READY + 1))
-      fi
-    done
-
-    if [ "$READY" -eq "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
-      echo "All $TOTAL servers ready after $((i * POLL_INTERVAL))s"
-      ALL_READY="true"
-      break
-    fi
-
-    # Progress update every 30s
+  PARSE_EXIT=$?
+  if [ $PARSE_EXIT -ne 0 ]; then
+    # Only warn on first few iterations — server may still be starting up
     if [ $(( (i * POLL_INTERVAL) % 30 )) -eq 0 ]; then
-      echo "$READY / $TOTAL servers ready..."
+      echo "Warning: $URLS"
     fi
+    check_pid
+    sleep "$POLL_INTERVAL"
+    continue
+  fi
+
+  READY=0
+  TOTAL=0
+  NOT_READY=""
+  for url in $URLS; do
+    TOTAL=$((TOTAL + 1))
+    if curl -sf "$url/docs" > /dev/null 2>&1; then
+      READY=$((READY + 1))
+    else
+      NOT_READY="${NOT_READY}  - ${url}\n"
+    fi
+  done
+
+  if [ "$READY" -eq "$TOTAL" ] && [ "$TOTAL" -gt 0 ]; then
+    echo "All $TOTAL servers ready after $((i * POLL_INTERVAL))s"
+    ALL_READY="true"
+    break
+  fi
+
+  # Progress update every 30s
+  if [ $(( (i * POLL_INTERVAL) % 30 )) -eq 0 ]; then
+    echo "$READY / $TOTAL servers ready..."
   fi
 
   check_pid
@@ -80,6 +104,11 @@ print(' '.join(inst['url'] for inst in instances if inst.get('url')))" 2>/dev/nu
 done
 
 if [ "$ALL_READY" != "true" ]; then
-  echo "Servers did not become ready within ${MAX_WAIT}s"
+  echo "FAILED: Servers did not become ready within ${MAX_WAIT}s"
+  echo "Servers still not responding:"
+  printf "$NOT_READY"
+  echo ""
+  echo "Last /server_instances response:"
+  echo "$RAW_RESPONSE"
   exit 1
 fi
