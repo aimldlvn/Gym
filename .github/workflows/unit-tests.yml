@@ -32,47 +32,39 @@ jobs:
       - name: Detect changed files
         id: changes
         run: |
-          # workflow_call or non-PR context: no base_ref available, run everything
+          # workflow_call or non-PR context: run everything
           if [ -z "${{ github.base_ref }}" ]; then
-            echo "category=full" >> $GITHUB_OUTPUT
-            echo "No base_ref available (workflow_call?) - will run full suite"
+            echo "run_full=true" >> $GITHUB_OUTPUT
+            echo "run_servers=false" >> $GITHUB_OUTPUT
+            echo "No base_ref - running full suite"
             exit 0
           fi
 
-          # Fetch just the tip of the base branch (e.g. main) so we can diff against it.
-          # The default checkout is shallow (depth=1), so origin/<base> doesn't exist yet.
           git fetch origin ${{ github.base_ref }} --depth=1
-
           CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }} HEAD)
-
           echo "Changed files:"
           echo "$CHANGED_FILES"
-          echo ""
-
-          if [ -z "$CHANGED_FILES" ]; then
-            echo "category=full" >> $GITHUB_OUTPUT
-            echo "No changed files detected - will run full suite to be safe"
-            exit 0
-          fi
 
           DOCS_PATTERN='^(docs/|fern/|README\.md|CONTRIBUTING\.md|CODE_OF_CONDUCT\.md|SECURITY\.md|ATTRIBUTIONS\.md|LICENSE)'
           SERVER_PATTERN='^(resources_servers|responses_api_agents|responses_api_models)/[^/]+/'
 
-          # Classify: docs-only, servers-only (+ optional docs), or full
-          NON_DOCS=$(echo "$CHANGED_FILES" | grep -cvE "$DOCS_PATTERN" || true)
+          # Check what types of files changed
+          HAS_OTHER=$(echo "$CHANGED_FILES" | grep -vE "$DOCS_PATTERN" | grep -cvE "$SERVER_PATTERN" || true)
           HAS_SERVERS=$(echo "$CHANGED_FILES" | grep -cE "$SERVER_PATTERN" || true)
-          # Files that are neither docs nor servers
-          NON_DOCS_OR_SERVER=$(echo "$CHANGED_FILES" | grep -vE "$DOCS_PATTERN" | grep -cvE "$SERVER_PATTERN" || true)
 
-          if [ "$NON_DOCS" -eq 0 ]; then
-            echo "category=docs" >> $GITHUB_OUTPUT
-            echo "Only docs changed - will skip all tests"
-          elif [ "$NON_DOCS_OR_SERVER" -eq 0 ] && [ "$HAS_SERVERS" -gt 0 ]; then
-            echo "category=servers" >> $GITHUB_OUTPUT
-            echo "Only server files (+ docs) changed - will test changed servers only"
+          # If any file is not a doc and not a server file -> full suite
+          # Otherwise, if server files changed -> test only those servers
+          # Otherwise (docs only) -> skip tests
+          if [ -z "$CHANGED_FILES" ] || [ "$HAS_OTHER" -gt 0 ]; then
+            echo "run_full=true" >> $GITHUB_OUTPUT
+            echo "run_servers=false" >> $GITHUB_OUTPUT
+          elif [ "$HAS_SERVERS" -gt 0 ]; then
+            echo "run_full=false" >> $GITHUB_OUTPUT
+            echo "run_servers=true" >> $GITHUB_OUTPUT
           else
-            echo "category=full" >> $GITHUB_OUTPUT
-            echo "Running full test suite"
+            echo "run_full=false" >> $GITHUB_OUTPUT
+            echo "run_servers=false" >> $GITHUB_OUTPUT
+            echo "Docs-only change - skipping tests"
           fi
 
       - name: Cache uv dependencies
@@ -100,15 +92,15 @@ jobs:
         run: |
           source .venv/bin/activate
 
-          CATEGORY="${{ steps.changes.outputs.category }}"
+          # Full suite: core library tests + all server tests
+          if [[ "${{ steps.changes.outputs.run_full }}" == "true" ]]; then
+            echo "Running full test suite"
+            ng_dev_test
+            ng_test_all +fail_on_total_and_test_mismatch=true +delete_venvs_after_each_test=true
 
-          if [ "$CATEGORY" = "docs" ]; then
-            echo "Docs-only change - skipping all tests"
-            exit 0
-
-          elif [ "$CATEGORY" = "servers" ]; then
-            echo "Server-only change - testing changed servers"
-
+          # Server-only: test just the changed servers
+          elif [[ "${{ steps.changes.outputs.run_servers }}" == "true" ]]; then
+            echo "Testing changed servers only"
             CHANGED_SERVERS=$(git diff --name-only origin/${{ github.base_ref }} HEAD | \
               grep -E '^(resources_servers|responses_api_agents|responses_api_models)/[^/]+/' | \
               cut -d'/' -f1-2 | sort -u)
@@ -135,10 +127,9 @@ jobs:
               exit 1
             fi
 
+          # Docs-only: nothing to test
           else
-            echo "Running full test suite"
-            ng_dev_test
-            ng_test_all +fail_on_total_and_test_mismatch=true +delete_venvs_after_each_test=true
+            echo "No tests to run"
           fi
 
   test-wheel-install:
