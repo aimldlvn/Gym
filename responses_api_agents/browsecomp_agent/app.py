@@ -287,18 +287,7 @@ class BrowsecompAgent(SimpleResponsesAPIAgent):
                 # model call. This violates Gym's abstractions (only works on vLLM-style models
                 # exposing /tokenize) but saves the cost of generating an output we'd discard.
                 if self.config.save_model_call_using_vllm_tokenize_endpoint:
-                    converter = VLLMConverter(return_token_id_information=False)
-                    chat_completion_create_params = converter.responses_to_chat_completion_create_params(new_body)
-                    chat_completion_create_params = chat_completion_create_params.model_dump()
-
-                    # Same projection as vllm_model/app.py:384.
-                    tokenize_body_dict = {}
-                    for key in ("model", "messages", "tools", "chat_template_kwargs"):
-                        if key in chat_completion_create_params:
-                            tokenize_body_dict[key] = chat_completion_create_params[key]
-
-                    tokenize_response = await self._policy_model_openai_client.create_tokenize(**tokenize_body_dict)
-                    pre_prompt_tokens = len(tokenize_response["tokens"])
+                    pre_prompt_tokens = await self._count_prompt_tokens(new_body)
                     if (
                         reset_threshold
                         and pre_prompt_tokens > reset_threshold
@@ -324,10 +313,29 @@ class BrowsecompAgent(SimpleResponsesAPIAgent):
                                 reset_count=reset_count,
                                 is_final=False,
                             )
-                        if self.config.context_reset_keep_rounds > 0:
-                            new_outputs = self._extract_last_rounds(new_outputs)
-                        else:
-                            new_outputs = []
+                        # Adaptive shrink: try keep_rounds, keep_rounds-1, ... 0,
+                        # accept the largest n whose resulting prompt fits under
+                        # the threshold
+                        chosen_outputs = None
+                        post_prompt_tokens = pre_prompt_tokens
+                        for n in range(self.config.context_reset_keep_rounds, -1, -1):
+                            cand = self._extract_last_rounds(new_outputs, n=n)
+                            cand_body = body.model_copy(update={"input": body.input + cand})
+                            post_prompt_tokens = await self._count_prompt_tokens(cand_body)
+                            if post_prompt_tokens <= reset_threshold:
+                                chosen_outputs = cand
+                                log_event("context_reset_shrink", kept_rounds=n, post_prompt_tokens=post_prompt_tokens)
+                                break
+                        if chosen_outputs is None:
+                            # System prompt + user query alone exceed the reset
+                            # threshold. There's no way to make this sample fit
+                            log_event("context_reset_shrink_failed", post_prompt_tokens=post_prompt_tokens)
+                            raise RuntimeError(
+                                f"Context reset failed: prompt is {post_prompt_tokens} tokens "
+                                f"(threshold {reset_threshold}) even with all tool history dropped. "
+                                f"sample_id={sample_id} step={step}"
+                            )
+                        new_outputs = chosen_outputs
                         context_reset_steps.append(step)
                         save_ckpt()
                         continue
@@ -729,13 +737,29 @@ class BrowsecompAgent(SimpleResponsesAPIAgent):
             return NeMoGymFunctionCallOutput.model_validate(d)
         raise ValueError(f"Unknown output item type in checkpoint: {t!r}")
 
-    def _extract_last_rounds(self, new_outputs):
+    async def _count_prompt_tokens(self, body) -> int:
+        """Hit vLLM's /tokenize endpoint and return the prompt token count"""
+        converter = VLLMConverter(return_token_id_information=False)
+        chat_completion_create_params = converter.responses_to_chat_completion_create_params(body)
+        chat_completion_create_params = chat_completion_create_params.model_dump()
+
+        # Same projection as vllm_model/app.py:384.
+        tokenize_body_dict = {}
+        for key in ("model", "messages", "tools", "chat_template_kwargs"):
+            if key in chat_completion_create_params:
+                tokenize_body_dict[key] = chat_completion_create_params[key]
+
+        tokenize_response = await self._policy_model_openai_client.create_tokenize(**tokenize_body_dict)
+        return len(tokenize_response["tokens"])
+
+    def _extract_last_rounds(self, new_outputs, n=None):
         """
         Extract the last n complete tool-call rounds from new_outputs.
         A round = one or more function_call items + their corresponding
         function_call_output items. Returns a flat list preserving order.
         """
-        n = self.config.context_reset_keep_rounds
+        if n is None:
+            n = self.config.context_reset_keep_rounds
         if n <= 0:
             return []
 
