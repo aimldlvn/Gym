@@ -57,7 +57,7 @@ For multi-step, tool-calling, and LLM-as-judge patterns, refer to the [Gymnasium
 
 ## Tutorial Steps
 
-### Step 1: Scaffold the Files
+### Scaffold the Files
 
 1. **Create the directory tree**:
 
@@ -83,7 +83,7 @@ For multi-step, tool-calling, and LLM-as-judge patterns, refer to the [Gymnasium
 
 **✅ Success Check**: `ls resources_servers/guess_number/` shows the expected directories.
 
-### Step 2: Implement the Environment
+### Implement the Environment
 
 Write `resources_servers/guess_number/app.py`:
 
@@ -119,7 +119,7 @@ if __name__ == "__main__":
 
 **✅ Success Check**: `reset()` picks a secret and primes the model. `step()` parses the model's `<answer>` tag, scores it, and terminates.
 
-### Step 3: Wire the YAML and Dataset
+### Wire the Configuration and Dataset
 
 1. **Add the config** at `resources_servers/guess_number/configs/guess_number.yaml`:
 
@@ -156,7 +156,7 @@ if __name__ == "__main__":
 
 **✅ Success Check**: `wc -l resources_servers/guess_number/data/example.jsonl` returns 5.
 
-### Step 4: Run and Verify
+### Run and Verify
 
 1. **Start the servers** (Terminal 1):
 
