@@ -1,0 +1,146 @@
+---
+title: "Getting Started"
+description: "Install NeMo Gym, start evaluating and training models and agents."
+position: 2
+---
+
+# Getting Started
+
+## Installation
+
+Requires Python 3.12+
+
+<Tabs>
+<Tab title="pip install">
+
+```bash
+pip install nemo-gym
+```
+
+</Tab>
+<Tab title="Git clone">
+
+```bash
+git clone git@github.com:NVIDIA-NeMo/Gym.git
+cd Gym
+uv venv --python 3.12 && source .venv/bin/activate
+uv sync
+```
+
+</Tab>
+<Tab title="Container">
+
+For RL training with NeMo RL, use the NGC container:
+
+```bash
+docker pull nvcr.io/nvidia/nemo-rl:v0.5.0.nemotron_3_super
+```
+
+See the [NeMo RL training tutorial](/latest/training-tutorials/nemo-rl-grpo/setup) and [RL framework compatibility](/latest/reference/rl-framework-compatibility) for container setup details.
+
+</Tab>
+</Tabs>
+
+## CLI
+
+```bash
+# Display all available commands
+ng_help
+
+# Get detailed help for any command
+ng_run +help=true
+ng_test +h=true
+```
+
+Every CLI command supports `+h=true` or `+help=true` for detailed usage information.
+
+## List Environments and Benchmarks
+
+```bash
+ng_list_benchmarks
+```
+
+```text
+Available benchmarks in NeMo Gym
+┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┓
+┃ Benchmark name   ┃ Agent name                        ┃ Num repeats ┃
+┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━┩
+│ aalcr            │ aalcr_benchmark_simple_agent      │ 16          │
+│ aime25           │ aime25_math_with_judge_simple_ag… │ 32          │
+│ browsecomp       │ browsecomp_tavily_search_simple_… │ 1           │
+│ gpqa             │ gpqa_mcqa_simple_agent            │ 8           │
+│ ifbench          │ ifbench_benchmark_simple_agent    │ 5           │
+| ...              | ...                               | ...         |
+│ tau2             │ tau2_benchmark_agent              │ 8           │
+│ xstest           │ xstest_benchmark_simple_agent     │ 4           │
+└──────────────────┴───────────────────────────────────┴─────────────┘
+```
+
+For the full list of training environments, see the [Available Environments](https://github.com/NVIDIA-NeMo/Gym#-available-environments) table.
+
+## Run Evaluation
+
+Start your model and agent servers:
+```bash
+ng_run "+config_paths=[<model_config>,<agent_config>]"
+```
+
+Score your agent on your tasks:
+
+```bash
+ng_collect_rollouts \
+    +agent_name=<agent> \
+    +input_jsonl_fpath=<data> \
+    +output_jsonl_fpath=<output>
+```
+
+Calculate evaluation metrics:
+
+```bash
+ng_reward_profile \
+    +materialized_inputs_jsonl_fpath=<data> \
+    +rollouts_jsonl_fpath=<output>
+```
+
+## Run Training
+
+<Tabs>
+<Tab title="NeMo RL (GRPO)">
+
+See the [NeMo RL tutorial](/latest/training-tutorials/nemo-rl-grpo).
+
+</Tab>
+<Tab title="Unsloth">
+
+See the [Unsloth tutorial](/latest/training-tutorials/unsloth).
+
+</Tab>
+</Tabs>
+
+For detailed usage of all commands, see the [CLI Reference](/latest/reference/cli-commands).
+
+## Next Steps
+
+<Cards>
+
+<Card title="Browse Environment Hub" href="https://github.com/NVIDIA-NeMo/Gym#-available-environments">
+Explore available benchmarks and training environments.
+</Card>
+
+<Card title="Agents" href="/latest/agent-server">
+Explore available agent harnesses and learn how to integrate your own.
+</Card>
+
+<Card title="Evaluation" href="/latest/reference/cli-commands">
+Run benchmarks and custom evals at scale.
+</Card>
+
+<Card title="Training" href="/latest/training-tutorials">
+Improve your agent or model with RL or fine-tuning.
+</Card>
+
+<Card title="Build Custom Environments" href="/latest/environment-tutorials">
+Create your own evaluation or training environments.
+</Card>
+
+</Cards>
