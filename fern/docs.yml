@@ -2,11 +2,11 @@ instances:
   - url: https://gym.docs.buildwithfern.com/nemo/gym
     custom-domain: docs.nvidia.com/nemo/gym
 
-check:
-  rules:
-    broken-links: error
-    example-validation: warn
-    missing-redirects: error
+# NOTE: a `check.rules` block here breaks `fern check` — fern (4.99.0–5.1.0)
+# silently exits 1 with no output whenever broken-links or missing-redirects
+# is configured at any level. Broken links and missing redirects are still
+# caught at publish time by `fern generate --docs`. Restore this block once
+# fern-api fixes the bug.
 
 title: NeMo Gym
 
