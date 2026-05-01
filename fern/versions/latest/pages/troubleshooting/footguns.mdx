@@ -182,6 +182,36 @@ Run baselines on both instruct and thinking variants of a model — divergence b
 
 </Accordion>
 
+<Accordion title="`PermissionError [Errno 1] Operation not permitted` at startup (sandboxed environments)">
+
+**Cause**: Ray uses `psutil` to enumerate processes, which requires `sysctl()` on macOS and similar syscalls on Linux. Sandboxed runtimes (Cursor's AI sandbox, restricted Docker capabilities, locked-down CI runners) block those syscalls for security.
+
+```text
+PermissionError: [Errno 1] Operation not permitted (originated from sysctl() malloc 1/3)
+  File "ray/thirdparty_files/psutil/_psosx.py", line 337, in pids
+```
+
+**Fix**: Run `ng_run` outside the sandbox in a normal terminal. If you must stay in a sandbox, disable it for the command or grant the syscalls Ray needs. There is no NeMo Gym-side workaround — Ray legitimately needs system access to manage workers, and the sandbox is intentionally blocking it.
+
+</Accordion>
+
+<Accordion title="`inference.nvidia.com` model responses lack diversity (LiteLLM caching)">
+
+**Cause**: `inference.nvidia.com` enables LiteLLM caching by default, so identical inputs return cached outputs. pass@1 ends up identical to pass@5 because every rollout sees the same response.
+
+**Fix**: Disable caching via `extra_body` on the model server config:
+
+```yaml
+policy_model:
+  responses_api_models:
+    vllm_model:
+      extra_body:
+        cache:
+          no-cache: true
+```
+
+</Accordion>
+
 </AccordionGroup>
 
 ---

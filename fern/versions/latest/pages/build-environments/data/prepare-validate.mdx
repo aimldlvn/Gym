@@ -358,28 +358,95 @@ Metrics files are written to two locations:
 
 ## Dataset Configuration
 
-Define datasets in your server's YAML config:
+Define datasets in your agent server's YAML config. The `datasets` list lives under the agent (e.g., `simple_agent`):
 
 ```yaml
 datasets:
   - name: train
     type: train
-    jsonl_fpath: resources_servers/my_server/data/train.jsonl
     license: Apache 2.0
+    jsonl_fpath: resources_servers/example_multi_step/data/train.jsonl
+    num_repeats: 1
+    gitlab_identifier:
+      dataset_name: example_multi_step
+      version: 0.0.1
+      artifact_fpath: example_multi_step/train.jsonl
+    huggingface_identifier:
+      repo_id: nvidia/Nemotron-RL-instruction_following
+      artifact_fpath: instruction_following.jsonl
   - name: validation
     type: validation
-    jsonl_fpath: resources_servers/my_server/data/validation.jsonl
     license: Apache 2.0
+    jsonl_fpath: resources_servers/example_multi_step/data/validation.jsonl
   - name: example
     type: example
-    jsonl_fpath: resources_servers/my_server/data/example.jsonl
+    jsonl_fpath: resources_servers/example_multi_step/data/example.jsonl
 ```
+
+### Dataset object fields
+
+| Field | Required for | Description |
+|-------|--------------|-------------|
+| `name` | All | Identifier you choose. |
+| `type` | All | `example`, `train`, or `validation`. |
+| `jsonl_fpath` | All | Local path. For `train`/`validation`, this is the download destination when remote identifiers are set. |
+| `license` | `train`, `validation` | Dataset license string. Not required for `example`. |
+| `num_repeats` | No | Repeat each row N times during preparation. Defaults to `1`. |
+| `gitlab_identifier` | NVIDIA-internal `train`/`validation` | Remote location in the GitLab dataset registry. Contains `dataset_name`, `version`, `artifact_fpath`. |
+| `huggingface_identifier` | Public `train`/`validation` | Remote location on Hugging Face. Contains `repo_id` (required) and optional `artifact_fpath` for raw-file repos. Without `artifact_fpath`, the `datasets` library infers the split from `type`. |
+| `start_idx`, `end_idx` | No | Slice the dataset to a row range. |
+
+### Dataset types
 
 | Type | Purpose | Required for |
 |------|---------|--------------|
-| `example` | Small sample (~5 rows) for format checks | PR submission |
-| `train` | Training data | RL training |
+| `example` | First 5 rows of `train`, committed to git for fast format checks | PR submission |
+| `train` | Training data hosted in GitLab/HF | RL training |
 | `validation` | Evaluation during training | RL training |
+
+Every config requires at least one agent with one `example` dataset. Reviewers and other contributors use it to understand your data shape without downloading the full set.
+
+---
+
+## What `ng_prepare_data` does
+
+Each invocation runs the same 7-step pipeline:
+
+1. Load every dataset listed in the config from disk. Missing datasets are reported up front, before any processing.
+2. Validate each row. The only required key is `responses_create_params` matching the Responses API schema. Offending file paths and row indices are printed.
+3. Compute aggregate statistics, print them, and save them next to each `jsonl_fpath`:
+   - Number of examples
+   - Avg/max/min number of tools
+   - Input length in OpenAI tokens
+   - Avg/max/min number of turns
+   - Number of unique create-params combinations
+   - Avg/max/min temperature and other sampling params
+   - Number of unique user messages
+4. Compare per-dataset stats against any existing aggregate stats to catch drift.
+5. Collate all rows into final `train.jsonl` / `validation.jsonl` files in `+output_dirpath` for downstream NeMo RL or other train frameworks.
+6. Write the aggregate stats next to the collated outputs.
+7. Use the same `+config_paths` and the collated outputs to train. There is no extra preprocessing inside the NeMo Gym/RL integration beyond shuffling and distributed data loading.
+
+### Auto-download with `+should_download=true`
+
+Add `+should_download=true` to fetch missing datasets before validating. Hugging Face is the default source:
+
+```bash
+ng_prepare_data "+config_paths=[$config_paths]" \
+    +output_dirpath=data/example_multi_step \
+    +mode=train_preparation \
+    +should_download=true
+```
+
+NVIDIA-internal users can pull from GitLab instead with `+data_source=gitlab`:
+
+```bash
+ng_prepare_data "+config_paths=[$config_paths]" \
+    +output_dirpath=data/example_multi_step \
+    +mode=train_preparation \
+    +should_download=true \
+    +data_source=gitlab
+```
 
 ---
 
