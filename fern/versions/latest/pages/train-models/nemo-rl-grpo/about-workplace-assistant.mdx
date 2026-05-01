@@ -7,52 +7,38 @@ journey_stage: scale
 ---
 import { NavButton } from "../../../../../components/NavButton";
 
-Workplace Assistant is a ****multi-step** agentic **tool-use** **training environment**** that tests a model's ability to execute business tasks in a simulated workplace setting.
-
-<Info>
-
-**Goal**: Understand the training environment and how tasks are structured and verified.
-
-**Time**: ~10 minutes (read)
-
-**In this section, you will learn**:
-
-1. How tasks are structured for multi-step tool calling
-2. The available databases and tools
-3. How the environment verifies task completion
-
-</Info>
+Workplace Assistant (the training environment, the resources server) is a multi-step agentic tool-use benchmark that drops the model into a simulated office and asks it to complete realistic business tasks. Each rollout gets up to 6 tool-calling steps and is scored by comparing the final state of all 5 simulated databases against a ground-truth trajectory.
 
 <NavButton href="/latest/train-models/nemo-rl-grpo" label="Back to Tutorial Overview" direction="back" />
 
 ## Prerequisites
 
-- Read the [tutorial overview](#training-nemo-rl-grpo-index) to understand the training goals
+- Read the [tutorial overview](#training-nemo-rl-grpo-index) for the training goals.
 
 ---
 
 ## How the Model Completes Tasks
 
-For each task, the model must:
+Each task arrives as a natural-language user message. The model has to:
 
-1. Understand the user's intent from natural language
-2. Determine which tools to call and in what order
-3. Infer correct parameters (for example, look up email addresses or find matching customer records)
-4. Execute all necessary steps to complete the task
+1. Parse intent.
+2. Pick a tool sequence.
+3. Infer parameters (for example, look up an email address or find matching customer records).
+4. Execute every step needed to satisfy the request.
 
-The model has up to **6 tool calling steps** to accomplish each task.
+The hard cap is **6 tool calls per task**.
 
 ---
 
 ## Available Databases and Tools
 
-Each task is a natural language request that the model must complete using the available tools. All tasks share the same set of tools that allow the model to retrieve more information or perform actions. Each **task instance** uses isolated database instances so actions from different rollouts don't interfere.
+Every task is a natural-language request executed against a shared tool set. Each **task instance** runs in isolated database instances so actions from different rollouts cannot interfere.
 
-- **Databases**: Email, Calendar, Analytics, Project Management, Customer Relationship Manager (CRM)
-- **Tools**: Distributed across these databases
-- **Tasks**: Common business activities (such as sending emails, scheduling meetings, and managing projects)
+- **Databases**: Email, Calendar, Analytics, Project Management, Customer Relationship Manager (CRM).
+- **Tools**: 27 functions distributed across the 5 databases.
+- **Tasks**: Common business activities — sending email, scheduling meetings, updating CRM records, managing projects.
 
-All tasks are available in the [Workplace Assistant HuggingFace dataset](https://huggingface.co/datasets/nvidia/Nemotron-RL-agent-workplace_assistant).
+The full corpus lives in the [Workplace Assistant HuggingFace dataset](https://huggingface.co/datasets/nvidia/Nemotron-RL-agent-workplace_assistant).
 
 ---
 
@@ -149,7 +135,7 @@ The full task includes all 27 tools across the 5 databases.
 
 ## How Verification Works
 
-The environment is implemented as a FastAPI-based resources server that executes tools and verification. It uses **state-matching verification**: instead of requiring exact tool sequences, it compares final database states.
+The environment is a FastAPI resources server that executes tools and computes the reward. It uses **state-matching verification**: instead of forcing the model to reproduce a specific tool sequence, it compares the final database state to the ground truth.
 
 <Tabs>
 <Tab title="Why State-Matching?">
@@ -237,6 +223,6 @@ async def route_to_python_function(self, path, body, request):
 
 ## Next Steps
 
-Now that you understand the Workplace Assistant environment, learn how to configure NeMo Gym for training:
+With the environment, tools, and reward in mind, wire NeMo Gym into the NeMo RL training config:
 
 <NavButton href="/latest/train-models/nemo-rl-grpo/gym-configuration" label="Continue to Gym Configuration" direction="next" />
