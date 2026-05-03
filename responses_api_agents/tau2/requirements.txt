@@ -1,2 +1,2 @@
 -e nemo-gym[dev] @ ../../
-git+https://github.com/bxyu-nvidia/tau2-bench@kbhardwaj/turn-counter
+git+https://github.com/cmunley1/tau2-bench@cmunley1/persistent-turn-counter
