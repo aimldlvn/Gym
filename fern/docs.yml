@@ -12,7 +12,7 @@ title: NeMo Gym
 
 landing-page:
   page: Welcome
-  path: ./versions/latest/pages/index.mdx
+  path: ./pages/welcome.mdx
   slug: /
 
 footer: ./components/CustomFooter.tsx
