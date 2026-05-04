@@ -6,7 +6,7 @@ audience_level: intermediate
 journey_stage: build
 position: 4
 ---
-import { NavButton } from "../../../../components/NavButton";
+import { NavButton } from "../../../../../components/NavButton";
 
 Add per-episode session state to a resources server (the verifier) using `SESSION_ID_KEY` middleware so concurrent rollouts maintain isolated state across tool calls. The session middleware is what changes here; the rest of the workflow (task data, agent/model config, rollout collection, training) matches the [single-step tutorial](/latest/build-environments/supported-patterns/single-step).
 
