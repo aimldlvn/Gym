@@ -10,11 +10,6 @@ check:
 
 title: NeMo Gym
 
-landing-page:
-  page: Welcome
-  path: ./versions/latest/pages/index.mdx
-  slug: /
-
 footer: ./components/CustomFooter.tsx
 
 layout:
