@@ -37,9 +37,6 @@ navigation:
       - folder: ./latest/pages/resources
         title: "Resources"
         title-source: frontmatter
-      - folder: ./latest/pages/contribute
-        title: "Contribute"
-        title-source: frontmatter
   - tab: api
     layout:
       - section: API Reference
