@@ -17,7 +17,7 @@ Three commands turn rollouts into a dataset-level score:
 2. `ng_reward_profile` produces `profiled.jsonl` — one line per task, with per-task aggregates.
 3. `python scripts/print_aggregate_results.py` collapses the per-task lines into a single dataset-level pass@1 / pass@k.
 
-`ng_reward_profile` is the middle step. The same flow works for any benchmark — `gpqa_diamond`, `aime25`, `bigcodebench`, your own customer eval.
+`ng_reward_profile` is the middle step. The same flow works for any benchmark — `gpqa_diamond`, `math_with_judge`, `code_gen`, your own customer eval.
 
 ## The command
 

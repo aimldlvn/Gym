@@ -86,7 +86,7 @@ For multi-step, tool-calling, and LLM-as-judge patterns, refer to the [Gymnasium
    -e nemo-gym[dev] @ ../../
    ```
 
-**✅ Success Check**: `ls resources_servers/mini_blackjack/` shows the expected directories.
+`ls resources_servers/mini_blackjack/` should now list the scaffold directories.
 
 ### Implement the Environment
 
@@ -139,7 +139,7 @@ if __name__ == "__main__":
     MiniBlackjackEnv.run_webserver()
 ```
 
-**✅ Success Check**: `reset()` returns the hand description; `step()` parses the action tag, settles against a fixed-17 dealer, and terminates with `+1`, `0`, or `-1`.
+`reset()` returns the hand description; `step()` parses the action tag, settles against a fixed-17 dealer, and terminates with `+1`, `0`, or `-1`.
 
 ### Wire the Configuration and Dataset
 
@@ -178,7 +178,7 @@ if __name__ == "__main__":
    ```
    </Accordion>
 
-**✅ Success Check**: `wc -l resources_servers/mini_blackjack/data/example.jsonl` returns 5.
+`wc -l resources_servers/mini_blackjack/data/example.jsonl` should return 5.
 
 ### Run and Verify
 
@@ -211,7 +211,7 @@ Same three commands you ran in the [Quickstart](/latest/get-started/quickstart),
        +rollouts_jsonl_fpath=results/mini_blackjack_rollouts.jsonl
    ```
 
-**✅ Success Check**: A `mean/reward` line prints. A reasonable strategy (stand on 17+, hit on 12-16) lands near `0.0` to `+0.3`. A model that always hits busts often and lands negative.
+A `mean/reward` line prints. A reasonable strategy (stand on 17+, hit on 12-16) lands near `0.0` to `+0.3`; a model that always hits busts often and lands negative.
 
 ## Summary
 

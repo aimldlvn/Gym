@@ -6,7 +6,7 @@ audience_level: intermediate
 journey_stage: build
 position: 1
 ---
-A NeMo Gym training environment is Python logic that performs a sequence or graph of model and tool calls. Native environments place those calls inside an agent server (the agent harness) like [SimpleAgent](https://github.com/NVIDIA-NeMo/Gym/blob/f0c830d7282f49f40ea8214473792014e498e3d5/responses_api_agents/simple_agent/app.py#L64). External environments offload that orchestration to a third-party library.
+A NeMo Gym training environment is Python logic that performs a sequence or graph of model and tool calls. Native environments place those calls inside an agent server (the agent harness) like [SimpleAgent](https://github.com/NVIDIA-NeMo/Gym/blob/main/responses_api_agents/simple_agent/app.py). External environments offload that orchestration to a third-party library.
 
 Wrapping an external training environment, benchmark, or agent requires extra care. The integration template and best practices below cover the typical pitfalls.
 
@@ -26,13 +26,13 @@ Wrapping an external training environment, benchmark, or agent requires extra ca
    1. Keep `/run` async to match NeMo Gym's first-party server design.
       1. Avoid extra threads or processes unless absolutely necessary. To scale, use Ray workers and await the `ray.remote` call.
       2. A single NeMo Gym instance (three FastAPI servers) handles 65,000 concurrent math rollouts without crashing and stays reasonably efficient.
-   2. Use the [NeMo Gym custom OpenAI client](https://github.com/NVIDIA-NeMo/Gym/blob/d4048f6c2e93a6e44ad4934e827310f06997d72a/nemo_gym/openai_utils.py#L433) — not OpenAI, Anthropic, or LiteLLM clients.
-      1. The NeMo Gym client is [meticulously designed to scale](https://github.com/NVIDIA-NeMo/Gym/blob/d4048f6c2e93a6e44ad4934e827310f06997d72a/docs/how-to-faq.md?plain=1#L861).
+   2. Use the [NeMo Gym custom OpenAI client](https://github.com/NVIDIA-NeMo/Gym/blob/main/nemo_gym/openai_utils.py) — not OpenAI, Anthropic, or LiteLLM clients.
+      1. The NeMo Gym client is designed to scale to 4k–65k concurrent rollouts; see [aiohttp vs httpx](/latest/blog/aiohttp-vs-httpx) for why.
       2. Other clients (LiteLLM, ...) preprocess or postprocess inputs and outputs, obscuring control over the data flow.
-      3. [Propagate cookies](https://github.com/NVIDIA-NeMo/Gym/blob/d4048f6c2e93a6e44ad4934e827310f06997d72a/responses_api_agents/simple_agent/app.py#L88) as appropriate.
+      3. [Propagate cookies](https://github.com/NVIDIA-NeMo/Gym/blob/main/responses_api_agents/simple_agent/app.py) as appropriate.
    3. Validate data shapes with Pydantic models wherever it matters.
 2. Rollout creation
-   1. During training, NeMo Gym models attach [`prompt_token_ids`, `generation_token_ids`, and `generation_log_probs`](https://github.com/NVIDIA-NeMo/Gym/blob/d4048f6c2e93a6e44ad4934e827310f06997d72a/nemo_gym/openai_utils.py#L89) on response messages and output items.
+   1. During training, NeMo Gym models attach [`prompt_token_ids`, `generation_token_ids`, and `generation_log_probs`](https://github.com/NVIDIA-NeMo/Gym/blob/main/nemo_gym/openai_utils.py) on response messages and output items.
    2. Propagate those fields from the previous model response when building messages or input items for the next call in multi-step or multi-turn scenarios.
 3. Delivery form factor
    1. Open a PR against NeMo Gym `main`.

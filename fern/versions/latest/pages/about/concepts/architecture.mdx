@@ -55,7 +55,7 @@ The agent server (the agent harness) is the orchestrator. It receives a prompt, 
 
 NeMo Gym ships several agent servers:
 
-- `simple_agent` — single-turn, the default; works for most benchmarks.
+- `simple_agent` — the default. Runs the model + tool-call loop until the model emits a final assistant message (or hits `max_steps`). Works for most benchmarks, single-turn or multi-step.
 - `proof_refinement_agent` — multi-turn correction loop where the model sees error feedback and retries.
 - `verifiers_agent`, `swe_agents`, and others — task-shaped harnesses for specific benchmark families.
 
@@ -65,12 +65,14 @@ Pick a harness when you wire up your YAML config; refer to the [Agent server](/l
 
 A stateless `/v1/responses` (and `/v1/chat/completions`) endpoint. It receives a conversation and returns the model's next output — text, tool calls, or code — with no memory.
 
-Four variants ship with NeMo Gym:
+Six variants ship with NeMo Gym:
 
 - `openai_model` — endpoints supporting `/v1/responses`.
-- `azure_openai_model` — Azure-hosted OpenAI models.
+- `azure_openai_model` — Azure-hosted OpenAI deployments.
 - `vllm_model` — remote vLLM endpoint exposing `/v1/chat/completions`.
 - `local_vllm_model` — vLLM started in-process by NeMo Gym.
+- `local_vllm_model_proxy` — forwards to an externally managed local vLLM (when another process owns the lifecycle).
+- `genrm_model` — generative reward model with `response_1`/`response_2`/`principle` roles for pairwise comparison.
 
 ### Resources server
 

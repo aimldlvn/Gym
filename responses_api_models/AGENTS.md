@@ -17,8 +17,8 @@ The Model Server Steward speaks for users hitting real LLM endpoints under high 
 ## Protect
 
 - **Endpoint shape.** `openai_model` is for endpoints supporting `/v1/responses`. `vllm_model` is for `/v1/chat/completions`. Don't mix; users see crashes mid-rollout when they're swapped.
-- **Pinned `openai` client.** `openai<=2.6.1` for schema compatibility. Don't bump without testing every model server type + every shipped agent harness.
-- **No httpx anywhere.** All model server HTTP goes through `nemo_gym.server_utils.request()` (aiohttp). External SDKs that use httpx internally get an aiohttp adapter.
+- **Pinned `openai` client.** `openai<=2.7.2` for schema compatibility. Don't bump without testing every model server type + every shipped agent harness.
+- **No direct httpx imports.** All first-party HTTP from a model server goes through `nemo_gym.server_utils.request()` (aiohttp). The pinned `openai` SDK uses httpx transitively for outbound provider calls (e.g. `azure_openai_model` instantiates `AsyncAzureOpenAI`); that path is bounded by `num_concurrent_requests` and is acceptable. For arbitrary external SDKs, wrap with an aiohttp adapter — never import `httpx` yourself.
 - **Bounded retry.** Per issue [#1208](https://github.com/NVIDIA-NeMo/Gym/issues/1208), `NeMoGymAsyncOpenAI` has bounded retry + opt-in concurrency cap. Default behavior must not retry indefinitely.
 - **Reasoning-block handling.** Models like Qwen3, GPT-5, Claude Sonnet/Opus 4.x, DeepSeek-R1 emit `<think>` / `<thinking>` blocks. Each model server type must document how it surfaces these to the agent harness; verifiers strip them before parsing.
 - **Tool-calling shape.** Function-call schema differs by model family. Document supported shapes per model server type.
@@ -31,7 +31,7 @@ When changing or adding a `responses_api_models/<name>/`:
 - `app.py` extends `SimpleResponsesAPIModel` and implements `chat_completions()` and/or `responses()`.
 - `configs/<name>.yaml` references the endpoint URL, API key (via env.yaml), and model name.
 - `tests/test_app.py` covers happy path, error path, retry behavior, concurrency cap.
-- `requirements.txt` pins `openai<=2.6.1` (and any provider SDK at compatible versions).
+- `requirements.txt` pins `openai<=2.7.2` (and any provider SDK at compatible versions).
 - `README.md` documents: provider, endpoint shape (Responses vs chat completions), tested model families, known caveats per family.
 - `fern/versions/latest/pages/reference/provider-compatibility.mdx` updated with the new server type / provider / tested-version row.
 - `fern/versions/latest/pages/reference/model-server/index.mdx` updated.
@@ -58,10 +58,10 @@ When changing or adding a `responses_api_models/<name>/`:
 ## Do Not
 
 - Import `litellm`, `anthropic` SDK, or any non-`openai` model SDK directly. Use the openai client and override the endpoint URL.
-- Use `httpx.AsyncClient`. Wrap external SDKs with `nemo_gym.server_utils.request()` (aiohttp).
+- Import `httpx` directly. The transitive httpx use inside the pinned `openai` SDK (e.g. `AsyncAzureOpenAI`) is the only allowed path; wrap any other external SDK with `nemo_gym.server_utils.request()` (aiohttp).
 - Implement infinite retry loops. Bounded retry only; surface failures upward.
 - Hardcode model-family-specific extraction (e.g., `<think>` stripping) in the model server. Let the agent harness or verifier handle it.
-- Bump `openai` past `2.6.1` without testing every shipped model server + every agent harness.
+- Bump `openai` past `2.7.2` without testing every shipped model server + every agent harness.
 - Mix Responses-style (`/v1/responses`) and chat-completions-style (`/v1/chat/completions`) within a single server type.
 
 ## Own

@@ -7,7 +7,7 @@ journey_stage: build
 position: 1
 ---
 
-NeMo Gym ships four model server types: `openai_model`, `azure_openai_model`, `vllm_model`, and `local_vllm_model`. This page documents what each supports, the endpoint shapes they expect, and the known gotchas per provider. For symptom-side fixes, see [Footguns](/latest/troubleshooting/footguns); for config field shapes, see [Configuration](/latest/reference/configuration).
+NeMo Gym ships six model server types: `openai_model`, `azure_openai_model`, `vllm_model`, `local_vllm_model`, `local_vllm_model_proxy`, and `genrm_model`. This page documents what each supports, the endpoint shapes they expect, and the known gotchas per provider. For symptom-side fixes, see [Footguns](/latest/troubleshooting/footguns); for config field shapes, see [Configuration](/latest/reference/configuration).
 
 <Note>
 Provider compatibility is the most common source of late-stage failures. Pick the server type that matches your endpoint shape *before* you write the YAML — mismatches surface as 404s, empty outputs, or silent reward zeros.
@@ -24,8 +24,8 @@ Provider compatibility is the most common source of late-stage failures. Pick th
 | `azure_openai_model`| `/v1/responses`          | Azure-hosted OpenAI deployments                   | `responses_api_models/azure_openai_model/configs/azure_openai_model.yaml`             |
 | `vllm_model`        | `/v1/chat/completions`   | Self-hosted vLLM (remote), OpenAI-compatible endpoints (OpenRouter, Together, Anyscale) without Responses support | `responses_api_models/vllm_model/configs/vllm_model.yaml`                             |
 | `local_vllm_model`  | `/v1/chat/completions` (managed) | NeMo Gym manages the vLLM server lifecycle on the local machine | `responses_api_models/local_vllm_model/configs/Qwen/Qwen3-30B-A3B-Thinking-2507.yaml` |
-
-A separate `local_vllm_model_proxy` variant exists for forwarding to an externally managed local vLLM. Use it when another process owns the vLLM lifecycle.
+| `local_vllm_model_proxy` | `/v1/chat/completions` (proxied) | Forward to an externally managed local vLLM (another process owns the lifecycle) | `responses_api_models/local_vllm_model_proxy/configs/`                                |
+| `genrm_model`       | `/v1/responses` (custom roles) | Generative reward model with `response_1`/`response_2`/`principle` roles for pairwise comparison | `responses_api_models/genrm_model/configs/`                                           |
 
 ---
 
@@ -244,8 +244,8 @@ Do not assume an untested model works. Run a smoke test with `data/example.jsonl
 
 ## Known Incompatibilities
 
-- **httpx-based async clients are unsupported.** All HTTP calls must go through NeMo Gym's aiohttp client. httpx/httpcore has O(n²) connection pool behavior that hangs at 16k+ concurrent requests.
-- **LiteLLM, Anthropic SDK, and other non-OpenAI clients are unsupported.** Use `nemo_gym/openai_utils.py` (pinned to `openai<=2.6.1` for schema compatibility).
+- **httpx is not used directly anywhere in NeMo Gym.** All first-party HTTP goes through the aiohttp client. The pinned `openai` SDK uses httpx transitively for outbound provider calls (e.g. `azure_openai_model` instantiates `AsyncAzureOpenAI`), which is acceptable because outbound provider calls are bounded by `num_concurrent_requests`. For arbitrary external libraries, do not import `httpx` — wrap them with an aiohttp adapter (see `resources_servers/tavily_search/app.py` `TavilySearchAIOHTTPClient`). httpx/httpcore has O(n²) connection pool behavior that hangs at 16k+ concurrent requests at the head-server level.
+- **LiteLLM, Anthropic SDK, and other non-OpenAI clients are unsupported.** Use `nemo_gym/openai_utils.py` (pinned to `openai<=2.7.2` for schema compatibility).
 - **Mixing endpoint shapes is unsupported.** A single `policy_model` instance is either Responses or chat completions, not both.
 - **JSON mode is not first-class.** Models that require strict JSON output must validate at the verifier level.
 - **Streaming responses are not used.** NeMo Gym buffers full responses; streaming endpoints are not exercised.

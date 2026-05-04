@@ -81,7 +81,7 @@ GPT-4.1 lands around `-0.6 ± 0.1` mean reward over 10 repeats against the fixed
 | Outcome | What to do |
 |---|---|
 | Mean reward in `[-0.7, -0.5]` | Validation passed. Setup is correct. Proceed to your real eval. |
-| Mean reward way off (e.g. `0.0`, `-1.0`, all-NaN) | Setup is misconfigured. Skip ahead to [Troubleshooting Validation Failures](#troubleshooting-validation-failures). |
+| Mean reward way off (e.g. `0.0`, `-1.0`, all-NaN) | Setup is misconfigured. See [Troubleshooting Validation Failures](#troubleshooting-validation-failures). |
 | Rollouts errored out | Install or `env.yaml` issue. Re-check [Configuration](/latest/get-started/configuration) and [Footguns](/latest/troubleshooting/footguns). |
 
 For the full reward semantics — why blackjack uses `{-1.0, 0.0, 1.0}` and how `pass@k` is computed for non-binary rewards — refer to [Reward Semantics](/latest/about/concepts/reward-semantics).

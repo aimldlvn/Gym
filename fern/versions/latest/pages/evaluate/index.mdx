@@ -26,7 +26,7 @@ Future versions may consolidate these into a single `gym eval` invocation. For n
 Every eval run is the combination of four components. Pick them once, and the same flow scores any task.
 
 - **Environment** — The benchmark or customer eval. Defines the task, the verification logic, and the dataset.
-- **Agent** — The harness that orchestrates the rollout. `simple_agent` covers single-turn tasks; multi-turn or refinement loops use a richer agent.
+- **Agent** — The harness that orchestrates the rollout. `simple_agent` covers most evals (it runs the model + tool-call loop until the model emits a final answer); refinement loops or external runtimes use a richer agent.
 - **Model** — The LLM under evaluation. Any OpenAI-compatible endpoint works — OpenAI proper, Azure, build.nvidia.com, self-hosted vLLM.
 - **Sandbox** — Where code runs, when applicable. Local subprocess, Ray, or Docker, depending on the benchmark's isolation needs.
 

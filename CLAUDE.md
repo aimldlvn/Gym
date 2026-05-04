@@ -300,7 +300,7 @@ Use `openai_model` for endpoints supporting `/v1/responses`, `vllm_model` for `/
 
 ### 6. Important constraints
 
-- Use NeMo Gym's OpenAI client (`nemo_gym/openai_utils.py`), not LiteLLM/Anthropic/other clients. It's `openai<=2.6.1` for schema compatibility.
+- Use NeMo Gym's OpenAI client (`nemo_gym/openai_utils.py`), not LiteLLM/Anthropic/other clients. It's `openai<=2.7.2` for schema compatibility.
 - Pass all configuration through Gym config (YAML), not environment variables. This includes model URLs, API keys, etc.
 - Environments must handle errors gracefully — tool failures and bad model outputs should return meaningful error responses, not crash the server. Must handle 4k-65k concurrent requests without crashing.
 - The `/run` endpoint must be async. Use `asyncio.Semaphore` for concurrency control if shelling out to external processes.

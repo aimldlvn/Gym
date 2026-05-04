@@ -53,14 +53,14 @@ When `nemo_gym/` changes, inspect:
 
 - **Resources servers** — give env authors a clearer reward semantics contract page; ship example `verify()` patterns; document the `+num_repeats` interaction with deterministic verifiers.
 - **Agent harnesses** — keep cookies/token-IDs propagation patterns boring and well-documented; surface `prompt_token_ids` / `generation_token_ids` as first-class.
-- **Model servers** — keep the openai-client pinning explicit (`openai<=2.6.1`) with a tested-version ladder.
+- **Model servers** — keep the openai-client pinning explicit (`openai<=2.7.2`) with a tested-version ladder.
 - **Tests** — provide a single canonical async fixture for "spin up minimal head + agent + resources + model server"; today each test type rolls its own.
 - **Docs** — keep `architecture.mdx`, `configuration.mdx`, and `cli-commands.mdx` honest about what the code actually does. Audit on every release.
 
 ## Do Not
 
 - Import `httpx` or `httpcore` directly. Period. Connection pool is O(n²); hangs at 16k+ concurrency.
-- Import `litellm`, `anthropic`, or any non-`openai` model SDK. The openai client is intentionally pinned (`openai<=2.6.1`) for schema compatibility. Wrap external libraries with an aiohttp adapter (see `resources_servers/tavily_search/app.py` `TavilySearchAIOHTTPClient`).
+- Import `litellm`, `anthropic`, or any non-`openai` model SDK. The openai client is intentionally pinned (`openai<=2.7.2`) for schema compatibility. Wrap external libraries with an aiohttp adapter (see `resources_servers/tavily_search/app.py` `TavilySearchAIOHTTPClient`).
 - Call `ray.get(future)` inside async code. Use `await future` (Ray futures are awaitable).
 - Mutate `os.environ` in Python expecting it to propagate into `ng_test`'s isolated venvs. Set env vars externally (e.g., `RAY_TMPDIR=/tmp ng_test ...`).
 - Add a runtime dependency without root-AGENTS.md sign-off.

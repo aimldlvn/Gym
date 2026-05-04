@@ -6,21 +6,7 @@ audience_level: intermediate
 journey_stage: build
 position: 4
 ---
-Apply YAML-based prompt templates at rollout time to build `responses_create_params.input` on the fly. This enables prompt sweeps without re-preparing JSONL data.
-
-<Info>
-
-**Goal**: Use prompt configs to separate prompt templates from dataset preparation.
-
-**Time**: ~5 minutes
-
-**In this guide, you will**:
-
-1. Write a prompt config YAML file
-2. Apply it during rollout collection with `ng_collect_rollouts`
-3. Optionally materialize prompts into JSONL with `ng_materialize_prompts`
-
-</Info>
+Apply YAML-based prompt templates at rollout time to build `responses_create_params.input` on the fly. Use this for prompt sweeps without re-preparing the JSONL.
 
 **Prerequisites**:
 - NeMo Gym installed ([Get Started](/latest/get-started))

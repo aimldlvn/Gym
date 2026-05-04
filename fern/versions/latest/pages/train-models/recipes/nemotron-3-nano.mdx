@@ -51,7 +51,7 @@ WORKSPACE=/path/to/large/storage/$USER
 df -h $WORKSPACE
 ```
 
-**✅ Success Check**: Directory has at least 200GB available space.
+`df -h` should report at least 200 GB available.
 
 ---
 
@@ -65,7 +65,7 @@ git clone --recurse-submodules -b nano-v3 https://github.com/NVIDIA-NeMo/RL.git 
 cd RL-nano-v3
 ```
 
-**✅ Success Check**: Repository cloned with nano-v3 branch checked out.
+The clone should leave you on the `nano-v3` branch.
 
 ---
 
@@ -138,7 +138,7 @@ Update your launch script to use the local .sqsh file:
 CONTAINER=$WORKSPACE/nemo-rl.v0.4.0.nemotron_3_nano.sqsh
 ```
 
-**✅ Success Check**: Container file exists (~15GB) or registry path configured.
+The container file should exist (~15 GB), or the registry path should be configured.
 
 ### 1.4 Install uv Tool
 
@@ -155,7 +155,7 @@ export PATH="$HOME/.local/bin:$PATH"
 uvx --version
 ```
 
-**✅ Success Check**: Command shows uv version number.
+`uvx --version` should print a version number.
 
 ---
 
@@ -213,7 +213,7 @@ sbatch prepare_data.sh
 
 </Note>
 
-**✅ Success Check**: Job completes and creates `train-split.jsonl` and `val-split.jsonl`.
+When the job completes, you should have `train-split.jsonl` and `val-split.jsonl`.
 
 ---
 
@@ -229,7 +229,7 @@ uvx --from huggingface-hub hf download nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF1
     --local-dir model
 ```
 
-**✅ Success Check**: Model files downloaded (~59GB total) to `model/` directory.
+Model files (~59 GB total) should now be present in `model/`.
 
 ---
 
@@ -256,7 +256,7 @@ ls model/config.json model/*.safetensors
 # Should show config.json and 13 safetensors files
 ```
 
-**✅ Success Check**: All directories and files present with correct sizes.
+All directories and files should be present at the expected sizes.
 
 ---
 
@@ -342,7 +342,7 @@ chmod +x launch_nemotron_training.sh
 
 </Tip>
 
-**✅ Success Check**: Script created and executable.
+The script should now exist and be executable.
 
 ---
 
@@ -367,7 +367,7 @@ Using BASE_LOG_DIR: /home/user/nemoRL/nemo-rl
 Submitted batch job 9453356
 ```
 
-**✅ Success Check**: Job submitted successfully with job ID returned.
+The submission should print a job ID.
 
 ---
 
@@ -385,7 +385,7 @@ squeue --job=JOBID -o "%.18i %.9P %.30j %.8u %.2t %.10M %.6D %R"
 
 **Note:** For job state codes (PD, R, CD, etc.), see [Slurm documentation](https://slurm.schedmd.com/squeue.html#SECTION_JOB-STATE-CODES).
 
-**✅ Success Check**: Job transitions from `PD` to `R` state.
+The job should transition from `PD` to `R`.
 
 ---
 
@@ -426,7 +426,7 @@ grep "Number of actors online: 16/16" $WORKSPACE/RL-nano-v3/logs/slurm-${JOBID}.
 # For 32-node job, look for: 256/256
 ```
 
-**✅ Success Check**: All actors online (16/16 for 2 nodes, or 256/256 for 32 nodes).
+All actors should report online — 16/16 for 2 nodes, 256/256 for 32 nodes.
 
 ---
 
@@ -453,7 +453,7 @@ ls -ltr $WORKSPACE/RL-nano-v3/logs/
 find $WORKSPACE/RL-nano-v3/logs/exp_*/tensorboard/ -name "*.tfevents.*" -mmin -5
 ```
 
-**✅ Success Check**: Rollout percentage increasing steadily, TensorBoard events being written.
+The rollout percentage should climb steadily and TensorBoard event files should be written.
 
 ---
 

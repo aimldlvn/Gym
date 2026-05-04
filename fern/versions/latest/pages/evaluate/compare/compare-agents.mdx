@@ -50,7 +50,7 @@ ng_status
 ```bash
 mkdir -p results
 
-# simple_agent — single forward pass, no retries
+# simple_agent — model + tool-call loop, no outer correction
 ng_collect_rollouts \
     +agent_name=math_formal_lean_simple_agent \
     +input_jsonl_fpath=resources_servers/math_formal_lean/data/example.jsonl \
@@ -71,28 +71,26 @@ The two invocations are identical except `+agent_name` and `+output_jsonl_fpath`
 
 ### 3. Profile each run
 
+`ng_collect_rollouts` writes a `<output>_materialized_inputs.jsonl` sidecar alongside each rollouts file; pass that to `ng_reward_profile`. The profiler derives its own output paths (`<rollouts_stem>_reward_profiling.jsonl` and `<rollouts_stem>_agent_metrics.json`) from the rollouts stem.
+
 ```bash
 ng_reward_profile \
-    +input_jsonl_fpath=resources_servers/math_formal_lean/data/example.jsonl \
-    +rollouts_jsonl_fpath=results/lean_simple_rollouts.jsonl \
-    +output_jsonl_fpath=results/lean_simple_profiled.jsonl \
-    +pass_threshold=1.0
+    +materialized_inputs_jsonl_fpath=results/lean_simple_rollouts_materialized_inputs.jsonl \
+    +rollouts_jsonl_fpath=results/lean_simple_rollouts.jsonl
 
 ng_reward_profile \
-    +input_jsonl_fpath=resources_servers/math_formal_lean/data/example.jsonl \
-    +rollouts_jsonl_fpath=results/lean_refinement_rollouts.jsonl \
-    +output_jsonl_fpath=results/lean_refinement_profiled.jsonl \
-    +pass_threshold=1.0
+    +materialized_inputs_jsonl_fpath=results/lean_refinement_rollouts_materialized_inputs.jsonl \
+    +rollouts_jsonl_fpath=results/lean_refinement_rollouts.jsonl
 ```
 
 ### 4. Print aggregate metrics side by side
 
 ```bash
-python scripts/print_aggregate_results.py +jsonl_fpath=results/lean_simple_profiled.jsonl
-python scripts/print_aggregate_results.py +jsonl_fpath=results/lean_refinement_profiled.jsonl
+python scripts/print_aggregate_results.py +jsonl_fpath=results/lean_simple_rollouts_agent_metrics.json
+python scripts/print_aggregate_results.py +jsonl_fpath=results/lean_refinement_rollouts_agent_metrics.json
 ```
 
-Read the two reports together. `avg_reward` is pass@1, `max_reward` is pass@k, `pass_rate` is the fraction of tasks above `+pass_threshold`. The harness-level decision usually falls out of the pass@1 delta — if `proof_refinement_agent` wins by 5+ points and the cost of extra turns is acceptable, it's the right harness.
+Read the two agent-metrics files together. `mean/reward` is pass@1; `max/reward` per task is pass@k; `std/reward` flags variance. The harness-level decision usually falls out of the `mean/reward` delta — if `proof_refinement_agent` wins by 5+ points and the cost of extra turns is acceptable, it's the right harness.
 
 ## Comparing per-task
 
@@ -104,12 +102,12 @@ import json
 def load(path):
     return {json.loads(l)["task_index"]: json.loads(l) for l in open(path)}
 
-simple = load("results/lean_simple_profiled.jsonl")
-refinement = load("results/lean_refinement_profiled.jsonl")
+simple = load("results/lean_simple_rollouts_reward_profiling.jsonl")
+refinement = load("results/lean_refinement_rollouts_reward_profiling.jsonl")
 
 for idx in sorted(simple):
-    s = simple[idx]["pass_rate"]
-    r = refinement[idx]["pass_rate"]
+    s = simple[idx]["mean/reward"]
+    r = refinement[idx]["mean/reward"]
     if s != r:
         marker = "+" if r > s else "-"
         print(f"task {idx}: simple={s:.2f} refinement={r:.2f} {marker}")
@@ -127,7 +125,7 @@ If a "win" survives only at low `+num_repeats`, it isn't a win. Run the comparis
 
 ## What this doesn't tell you
 
-- **Per-benchmark wins do not transfer.** `proof_refinement_agent` beating `simple_agent` on `math_formal_lean` says nothing about what happens on `gpqa_diamond` or `bigcodebench`. Re-run the comparison on every benchmark you care about.
+- **Per-benchmark wins do not transfer.** `proof_refinement_agent` beating `simple_agent` on `math_formal_lean` says nothing about what happens on `gpqa_diamond` or another coding benchmark. Re-run the comparison on every benchmark you care about.
 - **Model class interacts with harness choice.** A thinking model may already do internal correction and get no lift from `proof_refinement_agent`; an instruct model may need it. The pairing is what matters, not the harness in isolation.
 - **Cost is not surfaced.** `ng_reward_profile` reports rewards, not tokens or wall-clock time. `proof_refinement_agent` runs up to `max_correction_turns` extra forward passes on failure — measure that separately if cost matters. The `response.usage` field on each rollout has token counts; sum them across the rollouts JSONL.
 - **Statistical significance is not computed.** A 2-point pass@1 delta on 5 tasks × 8 repeats is well within noise. Use the rule of thumb above (variance < 1%) and treat anything below that threshold as a tie.

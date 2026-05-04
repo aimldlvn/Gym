@@ -58,7 +58,7 @@ Surface human review for any of:
 
 ## Anti-Patterns
 
-- Importing httpx, anthropic, or LiteLLM directly. Use `nemo_gym/openai_utils.py` (pinned to `openai<=2.6.1`).
+- Importing httpx, anthropic, or LiteLLM directly. Use `nemo_gym/openai_utils.py` (pinned to `openai<=2.7.2`).
 - `os.environ.update(...)` from Python expecting it to propagate into `ng_test`'s isolated venvs. Set env vars in the parent shell.
 - `ray.get(...)` inside an async function. Use `await future` (Ray futures are awaitable).
 - Mocking the database/server stack in tests. Use real subprocesses + real HTTP.
@@ -130,17 +130,42 @@ Steward findings should be contract-oriented, evidence-backed, and collateral-aw
 
 ## Steward Swarms
 
-When the user asks `ask stewards`, `bugbash`, `review swarm`, or `steward synthesis`, and delegation is available:
+Stewards spawn as independent agents, each reading root + its closest scoped `AGENTS.md`, each advocating only for its domain, each returning findings in the Steward Signal Format above. The implementing agent owns synthesis and final decisions; stewards advise and create useful tension but do not own integrated implementation. Keep PR scope bounded to accepted findings and their proof/collateral; defer unrelated steward suggestions to not-now/follow-up.
 
-- Spawn independent steward agents for affected domains.
-- Each steward reads root + its closest scoped `AGENTS.md`.
-- Each steward advocates only for that domain's interests.
-- Each returns findings in the Steward Signal Format above.
-- The implementing agent owns synthesis and final decisions.
-- Stewards advise and create useful tension; they do not own integrated implementation.
-- Keep PR scope bounded to accepted findings and their proof/collateral. Defer unrelated steward suggestions to not-now/follow-up.
+Triggers: `ask stewards`, `bugbash`, `review swarm`, `steward synthesis`, `audit docs`, `content audit`, `accuracy pass`.
 
-For backlog, roadmap, or prioritization work: consult all scoped stewards and produce raw steward signals, confidence, dependencies, risks, convergence, minority reports, ranked backlog, and not-now items.
+Stewards run in two modes. Pick based on the trigger and the shape of the change.
+
+### Implementation Review (default)
+
+Triggered by code changes, contract-affecting PRs, or `ask stewards` during a feature/refactor. Stewards defend their invariants against the change. Findings cite the diff, the test, or the missing collateral.
+
+Severity meanings: P0 = breaks an invariant or shipped contract; P1 = degrades it without breaking; P2/P3 = polish, advocacy, follow-up.
+
+### Content Audit
+
+Triggered by doc-shaped PRs (IA refactors, release notes, large content updates, README sweeps), or the explicit phrases `audit docs`, `content audit`, `accuracy pass`. Stewards verify that claims about their domain match the code: command surfaces, output schemas, named entities, version pins, counts, link targets, voice rubric. Findings cite a `<source-file:line>` ↔ `<doc-file:line>` divergence and the corrected text.
+
+Severity meanings shift in this mode:
+
+- **P0** — claim is factually wrong; would break a copy-pasted invocation, name a non-existent entity, or assert a contradicted invariant.
+- **P1** — claim is incomplete, stale, or misleading but not actively wrong.
+- **P2/P3** — voice rubric, cosmetic, advocacy.
+
+Doc-shaped PRs that don't run a content audit before merge are a known regression source. Make it part of the merge gate, not a follow-up.
+
+### Backlog / roadmap / prioritization
+
+Consult all scoped stewards and produce raw steward signals, confidence, dependencies, risks, convergence, minority reports, ranked backlog, and not-now items.
+
+## Known Regression Patterns
+
+Patterns the steward system has surfaced repeatedly. Each is a candidate for automation; until automated, they're stale-by-default fields the next content audit must re-verify.
+
+- **Doc-snippet rot** — `ng_*` CLI invocations in docs drift from real signatures (param renames, dropped flags, fabricated output fields). Highest-leverage automation: snippet test that runs every `bash`-tagged code block against the actual command (`--help` parse + arg validation).
+- **Naming and counting drift** — any doc claim that includes a count ("four model servers"), a name (`simple_agent` framed as "single-turn"), or a version pin (`openai<=2.6.1`) is stale-by-default. Code evolves, claim doesn't.
+- **Pedagogy creep** — voice rubric violations (Success Check ceremony, "In this guide you will…", skip-ahead Tips) accumulate when the rubric is enforced by review, not by lint. Highest-leverage automation: programmatic voice lint in docs CI.
+- **llms.txt drift** — when section structure or page slugs change, `llms.txt` rots silently. Highest-leverage automation: a check that every URL in `llms.txt` resolves to a page in `versions/latest.yml`.
 
 ## Steward Feedback Loop
 
@@ -160,9 +185,11 @@ For backlog, roadmap, or prioritization work: consult all scoped stewards and pr
 
 ## Ask Stewards
 
-Trigger phrase: `ask stewards`.
+Trigger phrases: `ask stewards`, `bugbash`, `review swarm`, `steward synthesis` (Implementation Review); `audit docs`, `content audit`, `accuracy pass` (Content Audit).
 
 For implementation work: consult affected stewards and return synthesis before or during the change. Include accepted/deferred findings, merged duplicates, minority reports, required proof, collateral updates, and not-now items.
+
+For content audit: spawn stewards across all domains the docs touch (default: all six on a site-wide IA refactor); synthesize into a triaged P0/P1/P2 punch list cited at file:line; gate the merge on P0/P1.
 
 For multi-surface work, include a parity matrix:
 
@@ -186,6 +213,7 @@ For multi-surface work, include a parity matrix:
 - Every accepted steward finding has test/docs/example/benchmark proof or an explicit no-impact note.
 - For docs: `cd fern && npm run check` clean (60 baseline pre-existing v0.2 false-positives are OK).
 - For docs: `python3 scripts/validate_docs_frontmatter.py` clean.
+- For doc-shaped PRs (IA refactors, release notes, large content updates, README sweeps): a Content Audit steward swarm has run; P0 and P1 findings have been actioned or explicitly deferred with a recorded reason.
 
 ## Review Notes
 

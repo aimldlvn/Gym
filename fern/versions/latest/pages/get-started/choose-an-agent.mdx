@@ -19,7 +19,7 @@ Every shipped agent under [`responses_api_agents/`](https://github.com/NVIDIA-Ne
 
 | Agent | Pattern | Use when |
 |---|---|---|
-| [`simple_agent`](https://github.com/NVIDIA-NeMo/Gym/tree/main/responses_api_agents/simple_agent) | Single-turn: forwards one `/v1/responses` call, executes any tool calls, returns the final response. | Default for most evals — single-turn QA, code generation, math, single tool call. |
+| [`simple_agent`](https://github.com/NVIDIA-NeMo/Gym/tree/main/responses_api_agents/simple_agent) | Loops `/v1/responses` calls, dispatches each tool call back to the resources server, terminates on a final assistant message or `max_steps`. | Default for most evals — single-turn QA, code generation, math, and any multi-step tool-call task that doesn't need a custom outer loop. |
 | [`non_executing_simple_agent`](https://github.com/NVIDIA-NeMo/Gym/tree/main/responses_api_agents/non_executing_simple_agent) | Forwards a single request and passes the model response straight to the verifier. Does not execute tool calls. | The tool call itself is the final answer (function-calling format checks, schema validation). |
 | [`proof_refinement_agent`](https://github.com/NVIDIA-NeMo/Gym/tree/main/responses_api_agents/proof_refinement_agent) | Multi-turn self-correction loop: model gets verifier error feedback and retries up to `max_correction_turns`. | Iterative refinement helps — formal proofs, code with a compiler in the loop. |
 | [`gymnasium_agent`](https://github.com/NVIDIA-NeMo/Gym/tree/main/responses_api_agents/gymnasium_agent) | Drives a Gymnasium-style `reset()` / `step()` loop against a `GymnasiumServer` resources server. | Your environment is a Gymnasium-style state machine (Blackjack, classic control, custom episodic envs). |

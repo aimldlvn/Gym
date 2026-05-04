@@ -98,33 +98,38 @@ ng_e2e_collect_rollouts \
 
 ## `ng_reward_profile`
 
-Computes statistics on rewards and task difficulty for rollouts collected with `ng_collect_rollouts` with `num_repeats` &gt;1. This outputs a new "reward profiled" dataset, where each task in the dataset has metrics like the average reward, standard deviation, min/max, and pass rate. This is useful in filtering tasks before training for difficulty, variance, or creating a curriculum.
+Computes statistics on rewards and task difficulty for rollouts collected with `ng_collect_rollouts` with `num_repeats` &gt;1. Outputs two files derived from the rollouts path: a per-task reward-profiling JSONL (one row per task) and an agent-level metrics JSON. Useful for filtering tasks before training by difficulty, variance, or for building a curriculum.
 
 **Parameters**
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `input_jsonl_fpath` | str | Path to the original task dataset JSONL file. |
-| `rollouts_jsonl_fpath` | str | Path to the rollouts file from `ng_collect_rollouts` (must have been run with `num_repeats` &gt;1). |
-| `output_jsonl_fpath` | str | Output file path for the reward profiled dataset. |
-| `pass_threshold` | Optional[float] | Reward threshold for computing pass rate. If not specified, pass rate metrics are not included. |
+| `materialized_inputs_jsonl_fpath` | str | Path to the materialized-inputs JSONL written alongside the rollouts file by `ng_collect_rollouts` (`<rollouts_stem>_materialized_inputs.jsonl`). |
+| `rollouts_jsonl_fpath` | str | Path to the rollouts JSONL file from `ng_collect_rollouts` (must have been run with `num_repeats` &gt;1). |
+
+**Output Files**
+
+Both paths are derived from the `rollouts_jsonl_fpath` stem:
+
+- `<rollouts_stem>_reward_profiling.jsonl` — one row per task with aggregate stats and a `sample` field carrying the original row.
+- `<rollouts_stem>_agent_metrics.json` — agent-level rollup of the same stats.
 
 **Output Fields**
 
-Each output row contains all original task fields plus:
-- `avg_reward`: Average reward across all rollouts
-- `std_reward`: Standard deviation of rewards
-- `min_reward`: Minimum reward observed
-- `max_reward`: Maximum reward observed
-- `total_samples`: Number of rollout samples
-- `pass_rate`, `pass_rate_total`, `pass_rate_passed`, `pass_threshold`: (Only if `pass_threshold` is specified)
+Each numeric column produces five entries keyed `<stat>/<column>`:
+
+- `mean/<column>` — mean across rollouts
+- `max/<column>` — maximum value observed
+- `min/<column>` — minimum value observed
+- `median/<column>` — median value
+- `std/<column>` — standard deviation (0 when only one sample)
+
+`column` covers `reward` plus any numeric fields the verifier returns (e.g. token counts from `response.usage`, or per-test scores from a custom `BaseVerifyResponse`). Per-task output rows also carry a `sample` field with the original task data.
 
 **Example**
 
 ```bash
 ng_reward_profile \
-    +input_jsonl_fpath=tasks.jsonl \
-    +rollouts_jsonl_fpath=rollouts.jsonl \
-    +output_jsonl_fpath=profiled_tasks.jsonl \
-    +pass_threshold=1.0
+    +materialized_inputs_jsonl_fpath=rollouts_materialized_inputs.jsonl \
+    +rollouts_jsonl_fpath=rollouts.jsonl
 ```
