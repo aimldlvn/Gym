@@ -5,6 +5,9 @@ tabs:
   api:
     display-name: API Reference
     slug: api
+  blog:
+    display-name: Blog
+    slug: blog
 
 navigation:
   - tab: docs
@@ -48,3 +51,14 @@ navigation:
             path: ./latest/pages/api-reference/index.mdx
             slug: ""
           - folder: ../product-docs/nemo-gym/Full-Library-Reference
+  - tab: blog
+    layout:
+      - page: "Overview"
+        path: ./latest/pages/blog/index.mdx
+        slug: ""
+      - page: "aiohttp vs httpx"
+        path: ./latest/pages/blog/aiohttp-vs-httpx.mdx
+      - page: "Responses API Evolution"
+        path: ./latest/pages/blog/responses-api-evolution.mdx
+      - page: "SWE-RL Case Study"
+        path: ./latest/pages/blog/swe-rl-case-study.mdx
