@@ -54,6 +54,8 @@ css:
   - ./styles/verified-badge.css
   - ./styles/scorer-catalog.css
   - ./styles/compat-matrix.css
+  - ./styles/agent-catalog.css
+  - ./styles/benchmark-catalog.css
 
 navbar-links:
   - type: github

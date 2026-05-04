@@ -6,6 +6,9 @@ audience_level: intermediate
 journey_stage: build
 position: 8
 ---
+import { VerifiedBadge } from "../../../../../components/VerifiedBadge";
+
+<VerifiedBadge verified={false} />
 
 OpenEnv parity at the **agent harness** layer is on the roadmap — no `responses_api_agents/openenv_agent/` wrapper ships today. There is, however, a partial **resources-server-side** integration: `resources_servers/openenv/` ships configs for `openenv_coding`, `openenv_echo`, and `openenv_maze`, runnable today by pairing them with `simple_agent` or another shipped harness. A dedicated agent wrapper will land when the OpenEnv-specific orchestration patterns warrant it.
 

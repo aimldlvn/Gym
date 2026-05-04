@@ -1,18 +1,13 @@
 ---
-title: "Scorers Library"
-description: "Catalog of verify() patterns shipped across resources_servers/, grouped by category. Lookup for environment authors picking a starting point and eval users finding a built-in scorer."
-content_type: reference
+title: "Scorer Patterns"
+description: "Six patterns for verify() implementations shipped across resources_servers/, with copy-this-when criteria. Paired with the filterable Scorer Catalog."
+content_type: explanation
 audience_level: intermediate
 journey_stage: build
 position: 3
 ---
-import { ScorerCatalog } from "../../../../../components/scorers/ScorerCatalog";
 
-Every shipped resources server in `resources_servers/` ships a `verify()` function — what other tools call a "scorer" or "evaluator." Filter the catalog below by pattern, domain, or whether a scorer requires a judge model. Each card cites the actual `verify()` line so you can copy the closest match.
-
-<ScorerCatalog />
-
-The narrative below covers the same six patterns in prose for readers who want context rather than a filterable lookup.
+Every shipped resources server in `resources_servers/` ships a `verify()` function — what other tools call a "scorer" or "evaluator." This page covers the six patterns in prose with copy-this-when criteria. For the filterable lookup with source citations, see [Scorer Catalog](/latest/build-environments/verification/scorer-catalog).
 
 | Pattern | Use when |
 |---|---|
