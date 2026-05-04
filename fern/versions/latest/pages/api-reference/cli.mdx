@@ -30,7 +30,7 @@ ng_test +h=true
 
 Commands for running, testing, and managing NeMo Gym servers.
 
-### `ng_run` / `nemo_gym_run`
+### `ng_run`
 
 Start NeMo Gym servers for agents, models, and resources.
 
@@ -53,7 +53,7 @@ ng_run "+config_paths=[${config_paths}]"
 
 ---
 
-### `ng_test` / `nemo_gym_test`
+### `ng_test`
 
 Test a specific server module by running its pytest suite and optionally validating example data.
 
@@ -72,7 +72,7 @@ ng_test +entrypoint=resources_servers/example_single_tool_call
 
 ---
 
-### `ng_test_all` / `nemo_gym_test_all`
+### `ng_test_all`
 
 Run tests for all server modules in the project.
 
@@ -90,7 +90,7 @@ ng_test_all
 
 ---
 
-### `ng_dev_test` / `nemo_gym_dev_test`
+### `ng_dev_test`
 
 Run core NeMo Gym tests with coverage reporting. Runs pytest with the `--cov` flag.
 
@@ -102,7 +102,7 @@ ng_dev_test
 
 ---
 
-### `ng_init_resources_server` / `nemo_gym_init_resources_server`
+### `ng_init_resources_server`
 
 Initialize a new resources server with template files and directory structure.
 
@@ -118,7 +118,7 @@ ng_init_resources_server +entrypoint=resources_servers/my_server
 
 Commands for collecting verified rollouts for RL training.
 
-### `ng_collect_rollouts` / `nemo_gym_collect_rollouts`
+### `ng_collect_rollouts`
 
 Perform a batch of rollout collection.
 
@@ -147,7 +147,7 @@ ng_collect_rollouts \
     +num_samples_in_parallel=10
 ```
 
-### `ng_e2e_collect_rollouts` / `nemo_gym_e2e_collect_rollouts`
+### `ng_e2e_collect_rollouts`
 
 Spin up all necessary servers and perform a batch of rollout collection using each dataset inside the provided configs.
 
@@ -202,7 +202,7 @@ ng_e2e_collect_rollouts \
 
 ---
 
-### `ng_reward_profile` / `nemo_gym_reward_profile`
+### `ng_reward_profile`
 
 Computes statistics on rewards and task difficulty for rollouts collected with `ng_collect_rollouts` with `num_repeats` &gt;1. This outputs a new "reward profiled" dataset, where each task in the dataset has metrics like the average reward, standard deviation, min/max, and pass rate. This is useful in filtering tasks before training for difficulty, variance, or creating a curriculum. 
 
@@ -241,7 +241,7 @@ ng_reward_profile \
 
 Commands for preparing and viewing training data.
 
-### `ng_prepare_data` / `nemo_gym_prepare_data`
+### `ng_prepare_data`
 
 Prepare and validate training data, generating metrics and statistics for datasets.
 
@@ -270,7 +270,7 @@ ng_prepare_data "+config_paths=[${config_paths}]" \
 
 Commands for uploading, downloading, and managing datasets in GitLab Model Registry.
 
-### `ng_upload_dataset_to_gitlab` / `nemo_gym_upload_dataset_to_gitlab`
+### `ng_upload_dataset_to_gitlab`
 
 Upload a local JSONL dataset artifact to GitLab.
 
@@ -293,7 +293,7 @@ ng_upload_dataset_to_gitlab \
 
 ---
 
-### `ng_download_dataset_from_gitlab` / `nemo_gym_download_dataset_from_gitlab`
+### `ng_download_dataset_from_gitlab`
 
 Download a JSONL dataset from GitLab Model Registry.
 
@@ -318,7 +318,7 @@ ng_download_dataset_from_gitlab \
 
 ---
 
-### `ng_delete_dataset_from_gitlab` / `nemo_gym_delete_dataset_from_gitlab`
+### `ng_delete_dataset_from_gitlab`
 
 Delete a dataset from GitLab Model Registry. Prompts for confirmation.
 
@@ -340,7 +340,7 @@ ng_delete_dataset_from_gitlab +dataset_name=old_dataset
 
 Commands for uploading and downloading datasets to/from HuggingFace Hub.
 
-### `ng_upload_dataset_to_hf` / `nemo_gym_upload_dataset_to_hf`
+### `ng_upload_dataset_to_hf`
 
 Upload a JSONL dataset to HuggingFace Hub with optional GitLab deletion after successful upload.
 
@@ -371,7 +371,7 @@ ng_upload_dataset_to_hf \
 
 ---
 
-### `ng_download_dataset_from_hf` / `nemo_gym_download_dataset_from_hf`
+### `ng_download_dataset_from_hf`
 
 Download a JSONL dataset from HuggingFace Hub to local filesystem.
 
@@ -395,7 +395,7 @@ ng_download_dataset_from_hf \
 
 ---
 
-### `ng_gitlab_to_hf_dataset` / `nemo_gym_gitlab_to_hf_dataset`
+### `ng_gitlab_to_hf_dataset`
 
 Upload a JSONL dataset to HuggingFace Hub and automatically delete from GitLab after successful upload.
 
@@ -421,7 +421,7 @@ ng_gitlab_to_hf_dataset \
 
 Commands for debugging configuration and getting help.
 
-### `ng_dump_config` / `nemo_gym_dump_config`
+### `ng_dump_config`
 
 Display the resolved Hydra configuration for debugging purposes.
 
@@ -433,7 +433,7 @@ ng_dump_config "+config_paths=[<config1>,<config2>]"
 
 ---
 
-### `ng_help` / `nemo_gym_help`
+### `ng_help`
 
 Display a list of available NeMo Gym CLI commands.
 
@@ -445,7 +445,7 @@ ng_help
 
 ---
 
-### `ng_version` / `nemo_gym_version`
+### `ng_version`
 
 Display NeMo Gym version and system information.
 
@@ -467,7 +467,7 @@ ng_version +json=true
 
 ---
 
-### `ng_pip_list` / `nemo_gym_pip_list`
+### `ng_pip_list`
 
 Each server has its own isolated virtual environment. To inspect the packages:
 
@@ -494,7 +494,7 @@ ng_pip_list +entrypoint=resources_servers/example_single_tool_call +outdated=tru
 
 ---
 
-### `ng_status` / `nemo_gym_status`
+### `ng_status`
 
 View all currently running NeMo Gym servers and their health status.
 

@@ -3,7 +3,7 @@ tabs:
     display-name: Documentation
     slug: ""
   api:
-    display-name: API Reference
+    display-name: API and CLI
     slug: api
   blog:
     display-name: Blog
@@ -44,13 +44,19 @@ navigation:
         title-source: frontmatter
   - tab: api
     layout:
-      - section: API Reference
-        slug: reference/api-reference
+      - section: "Python API"
+        slug: python
         contents:
           - page: Overview
             path: ./latest/pages/api-reference/index.mdx
             slug: ""
           - folder: ../product-docs/nemo-gym/Full-Library-Reference
+      - section: "CLI"
+        slug: cli
+        contents:
+          - page: "Commands"
+            path: ./latest/pages/api-reference/cli.mdx
+            slug: ""
   - tab: blog
     layout:
       - page: "Overview"
