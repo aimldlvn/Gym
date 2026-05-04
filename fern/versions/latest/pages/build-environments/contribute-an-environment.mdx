@@ -10,7 +10,7 @@ An environment consists of three components: Agents, Models, and Resources. Most
 This guide focuses on the resources server contribution process.
 
 <Tip>
-For a guide to building your first resources server, refer to [Single Step Environment](/latest/build-environments/single-step-environment).
+For a guide to building your first resources server, refer to [Single Step Environment](/latest/build-environments/supported-patterns/single-step).
 
 </Tip>
 
@@ -67,7 +67,7 @@ Prepare the dataset for your environment:
 Build your resources server:
 
 - Run `ng_init_resources_server +entrypoint=resources_servers/my_server` to scaffold the new resources server
-- Follow the [Single Step Environment](/latest/build-environments/single-step-environment) guide to implement your specific logic
+- Follow the [Single Step Environment](/latest/build-environments/supported-patterns/single-step) guide to implement your specific logic
 - Implement verification logic for your tasks by defining the `verify()` function
 - Set the `domain` field in your resources server configuration (see `Domain`).
 - Complete the auto-generated `README.md` with licensing information
@@ -197,6 +197,6 @@ For multi-step scenarios, the model returns training information on response mes
 
 ## Reference
 
-- [Single Step Environment](/latest/build-environments/single-step-environment) - Introductory tutorial for creating your first resources server
+- [Single Step Environment](/latest/build-environments/supported-patterns/single-step) - Introductory tutorial for creating your first resources server
 - [Task Verification](/latest/about/concepts/task-verification) - Verification and reward concepts
 - [Core Components](/latest/about/concepts/core-components) - Environment component architecture

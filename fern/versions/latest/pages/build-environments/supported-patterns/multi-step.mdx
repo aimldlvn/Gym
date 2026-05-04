@@ -1,16 +1,16 @@
 ---
-title: "Multi-Step Environment"
+title: "Multi-Step"
 description: "Build a multi-step tool-calling environment where the model chains lookups and submits results, with ground-truth verification of the final answer."
 content_type: tutorial
 audience_level: intermediate
 journey_stage: build
-position: 4
+position: 3
 ---
 import { NavButton } from "../../../../components/NavButton";
 
-Build a multi-step tool-calling environment in about 30 minutes — the agent chains lookups across two tools and submits a final list, scored against ground truth with 1.0 for exact match and 0.0 otherwise. The tools and verification grow in complexity here; the rest of the workflow (task data, agent/model config, rollout collection, training) matches the [single-step tutorial](/latest/build-environments/single-step-environment).
+Build a multi-step tool-calling environment in about 30 minutes — the agent chains lookups across two tools and submits a final list, scored against ground truth with 1.0 for exact match and 0.0 otherwise. The tools and verification grow in complexity here; the rest of the workflow (task data, agent/model config, rollout collection, training) matches the [single-step tutorial](/latest/build-environments/supported-patterns/single-step).
 
-<NavButton href="/latest/build-environments/single-step-environment" label="Single-Step Environment" direction="prev" />
+<NavButton href="/latest/build-environments/supported-patterns/single-step" label="Single-Step Environment" direction="prev" />
 
 ---
 
@@ -59,7 +59,7 @@ What does synonym_value mean?
 +--------------------------------------------------------------------------------+
 ```
 
-The `simple_agent` (the agent harness) loop from the [single-step tutorial](/latest/build-environments/single-step-environment) drives this: the model emits a `function_call`, the tool executes, the result appends back into the conversation, and the model is called again with the updated context. The cycle repeats until the model produces a final text response or hits `max_steps`. The multi-step environment is where the agent learns to chain tool calls correctly.
+The `simple_agent` (the agent harness) loop from the [single-step tutorial](/latest/build-environments/supported-patterns/single-step) drives this: the model emits a `function_call`, the tool executes, the result appends back into the conversation, and the model is called again with the updated context. The cycle repeats until the model produces a final text response or hits `max_steps`. The multi-step environment is where the agent learns to chain tool calls correctly.
 
 ---
 
@@ -226,4 +226,4 @@ ResourcesServer:
 
 ---
 
-<NavButton href="/latest/build-environments/stateful-environment" label="Stateful Environment" direction="next" />
+<NavButton href="/latest/build-environments/supported-patterns/stateful" label="Stateful Environment" direction="next" />
