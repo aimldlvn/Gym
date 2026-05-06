@@ -152,7 +152,8 @@ class Tau2Agent(SimpleResponsesAPIAgent):
         } | extra_agent_args
 
         config.max_steps = self.config.max_steps
-        config.max_agent_steps = self.config.max_agent_steps_by_domain[body.config.domain]
+        if self.config.max_agent_steps_by_domain:
+            config.max_agent_steps = self.config.max_agent_steps_by_domain[body.config.domain]
         config.turns_remaining_interval = self.config.turns_remaining_interval
 
         result = await run_single_task(**body_dict)
