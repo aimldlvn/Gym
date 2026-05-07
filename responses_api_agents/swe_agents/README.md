@@ -12,6 +12,7 @@ The entrypoint is [`app.py`](app.py), which exposes a `SWEBenchWrapper` (a `Simp
 - [Agent flow per instance](#agent-flow-per-instance)
 - [Supported datasets and harnesses](#supported-datasets-and-harnesses)
 - [OpenHands integration](#openhands-integration)
+- [OpenClaw integration](#openclaw-integration)
 - [Prompt and agent-class diversity](#prompt-and-agent-class-diversity)
 - [Tool-name diversity](#tool-name-diversity)
 - [Configuration reference](#configuration-reference)
@@ -103,7 +104,7 @@ The eval container is built from the same SIF as the agent for some datasets, bu
 
 ## OpenHands integration
 
-The agent always runs inside [OpenHands](https://github.com/All-Hands-AI/OpenHands), via `OpenHandsHarnessProcessor`. The fork pinned by `agent_framework_repo` / `agent_framework_commit` adds the prompt/tool-name diversity hooks documented below.
+The agent runs inside [OpenHands](https://github.com/All-Hands-AI/OpenHands) by default (when `agent_framework=openhands`), via `OpenHandsHarnessProcessor`. The fork pinned by `agent_framework_repo` / `agent_framework_commit` adds the prompt/tool-name diversity hooks documented below. An alternative agent framework, OpenClaw, is also supported — see the [OpenClaw integration](#openclaw-integration) section.
 
 Key details:
 
@@ -115,6 +116,27 @@ Key details:
 - **`cryptography<43` shim** — for `nv-internal-1` and `swe-bench-ext`, a `cryptography<43` wheel is installed into a temp dir and prepended to `PYTHONPATH`. This works around openssl/cryptography ABI mismatches in older base images.
 - **R2E-Gym test hiding** — when running the *agent* (not eval) under R2E-Gym, the wrapper deletes `/r2e_tests` and `/run_tests.sh` from `/`, `/root`, and `/testbed` so the agent can't peek at the held-out tests.
 - **Trajectories** — after the agent finishes, the wrapper copies `output.jsonl` and the latest `llm_completions/*/*.json` out of OpenHands' per-run eval output directory and into `<persistent_dir>/trajectories/<instance_id>/`, then deletes the OpenHands-side dir to keep the shared setup tree clean.
+
+---
+
+## OpenClaw integration
+
+OpenClaw ([openclaw.com](https://github.com/openclaw/openclaw)) is supported as a sibling agent framework. Selected via `agent_framework: openclaw` in the YAML config:
+
+- **Host-side setup, not SIF-baked.** OpenClaw is provisioned by [setup_scripts/openclaw.sh](setup_scripts/openclaw.sh), which runs inside `apptainer exec <openclaw_setup_sif>` (so openclaw never executes outside a container) and populates a host setup dir with the Node 22 toolchain + openclaw npm install + pre-bootstrapped workspace template. The dir is mounted read-only at `/openclaw_setup` in every rollout SIF. SWE-bench SIFs are used unmodified.
+- **In-container runner.** [run_openclaw.py](run_openclaw.py) embeds an inline Python runner (`OPENCLAW_RUNNER_SCRIPT`) that copies `/openclaw_setup/home_template/.openclaw` into a per-instance writable `/tmp/oc_<instance>/.openclaw`, rewrites the model endpoint into `openclaw.json` and `models.json`, then runs `openclaw agent --local --agent main --json --session-id <uuid>`. The session JSONL trajectory + the `git diff` are written to `/trajectories_mount`.
+- **Sequential tool calls.** OpenClaw drives the `pi-coding-agent` toolset which is sequential. The wrapper sets `parallel_tool_calls=False` automatically when `agent_framework=openclaw`.
+- **Reuses everything else.** Container execution, SIF discovery, dataset processors, eval container, and Ray scheduling are unchanged. `RunOpenClawAgent` extends `RunOpenHandsAgent` and overrides three small hook methods: `_openhands_dir_copy_from_host` (simpler — openclaw writes directly to /trajectories_mount), `_extract_patch_and_eval_input` (different output schema), `_extract_agent_error` (surfaces `timed_out` from the runner).
+- **Compaction must stay disabled.** Pi-coding-agent defaults compaction on; without overriding, long rollouts silently summarize earlier turns. The setup script writes `compaction.enabled=false` into the workspace template; the runner also writes it defensively per rollout.
+- **Trajectory format.** `get_openclaw_trajectory_from_session` (in [run_openclaw.py](run_openclaw.py)) converts the openclaw session JSONL into the same OpenAI chat-completions shape `_inner_responses` produces for OpenHands.
+
+To run OpenClaw rollouts, swap the config and provide both an `openclaw_setup_sif` (used as the host environment for the setup script) and the rollout `container_formatter`:
+
+```bash
+ng_run "+config_paths=[responses_api_agents/swe_agents/configs/swebench_openclaw.yaml,responses_api_models/vllm_model/configs/vllm_model.yaml]" \
+    "+swe_agents.responses_api_agents.swe_agents.openclaw_setup_sif=/path/to/any_swebench.sif" \
+    "+swe_agents.responses_api_agents.swe_agents.container_formatter='/path/to/sif/swebench_sweb.eval.x86_64.{instance_id}.sif'"
+```
 
 ---
 
@@ -183,8 +205,10 @@ The full schema lives in `SWEBenchWrapperConfig` (and the per-override `AgentPro
 
 | Field                              | Default                                           | Purpose                                                                 |
 |------------------------------------|---------------------------------------------------|-------------------------------------------------------------------------|
-| `agent_framework_repo`             | OpenHands official                                | Fork to clone for the agent runtime.                                    |
-| `agent_framework_commit`           | `HEAD`                                            | Commit to pin.                                                          |
+| `agent_framework`                  | `openhands`                                       | Agent framework to dispatch to. `openhands` (default) or `openclaw`.    |
+| `openclaw_home_template_path`      | `/opt/openclaw_home_template`                     | (`agent_framework=openclaw` only) In-SIF path to baked openclaw HOME template. |
+| `agent_framework_repo`             | OpenHands official                                | Fork to clone for the agent runtime (OpenHands path only).              |
+| `agent_framework_commit`           | `HEAD`                                            | Commit to pin (OpenHands path only).                                    |
 | `agent_max_turns`                  | `100`                                             | Max OpenHands iterations.                                               |
 | `agent_config`                     | `null`                                            | Path to the OpenHands TOML (`configs/oh_config.toml`).                  |
 | `agent_tools_file`                 | `null`                                            | (SWE-agent only) JSON tool list in OpenAI format.                       |
@@ -207,6 +231,7 @@ Bundled YAML configs:
 - `configs/swebench_openhands_training.yaml` — same shape as above but tuned for training.
 - `configs/swebench_swe_agent.yaml` — alternative SWE-agent path (uses `agent_tools_file`).
 - `configs/swebench_multi_tools.yaml` — full 15-way prompt × agent-class × tool-name bundle.
+- `configs/swebench_openclaw.yaml` — OpenClaw rollouts (see the OpenClaw integration section above).
 
 ---
 

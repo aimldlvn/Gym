@@ -105,6 +105,40 @@ class SWEBenchWrapperConfig(BaseResponsesAPIAgentConfig):
     agent_framework_commit: str = Field(
         default="HEAD", description="Which commit to use when cloning the SWE-agent/OpenHands repo"
     )
+    agent_framework: str = Field(
+        default="openhands",
+        description=(
+            "Which agent framework to dispatch to. Currently 'openhands' (default) or 'openclaw'. "
+            "OpenHands clones a fork at agent_framework_commit and mounts its build into the SIF; "
+            "OpenClaw is provisioned by setup_scripts/openclaw.sh (executed via `apptainer exec`) "
+            "into a host setup dir mounted read-only at /openclaw_setup."
+        ),
+    )
+    openclaw_home_template_path: str = Field(
+        default="/openclaw_setup/home_template",
+        description=(
+            "In-SIF path to the openclaw HOME template. Only used when "
+            "agent_framework='openclaw'. The runner copies this into a per-instance writable "
+            "HOME at rollout time."
+        ),
+    )
+    openclaw_npm_pin: str = Field(
+        default="latest",
+        description=(
+            "npm package spec passed to `npm install openclaw@...` by "
+            "setup_scripts/openclaw.sh. Pin to a specific version for reproducibility."
+        ),
+    )
+    openclaw_setup_sif: Optional[str] = Field(
+        default=None,
+        description=(
+            "Path to one SWE-bench SIF used by setup_scripts/openclaw.sh as the "
+            "`apptainer exec` host environment. Any instance SIF works — the SIF is used "
+            "purely as a Linux env with curl + tar; openclaw runs inside it via "
+            "`apptainer exec` so it never executes outside a container. Required when "
+            "agent_framework='openclaw'."
+        ),
+    )
     # Container configuration
     container_formatter: str | list[str] = Field(
         default="docker://swebench/sweb.eval.x86_64.{instance_id}", description="Container path template"
@@ -1276,8 +1310,14 @@ def runner_ray_remote(params_dict: dict[str, Any]) -> Optional[Path]:
     RunOpenHandsAgent.model_rebuild(force=True)
 
     params = SWEBenchWrapperInstanceConfig.model_validate(params_dict)
-    run_oh = RunOpenHandsAgent(config=params)
-    report_file = asyncio.run(run_oh.process_single_datapoint())
+    if params.agent_framework == "openclaw":
+        from responses_api_agents.swe_agents.run_openclaw import RunOpenClawAgent
+
+        RunOpenClawAgent.model_rebuild(force=True)
+        runner = RunOpenClawAgent(config=params)
+    else:
+        runner = RunOpenHandsAgent(config=params)
+    report_file = asyncio.run(runner.process_single_datapoint())
 
     return report_file
 
@@ -1420,6 +1460,28 @@ class RunOpenHandsAgent(BaseModel):
             await active_command.process.wait()
         active_command.log_file.close()
 
+    def _extract_agent_error(self, out_dict: Dict[str, Any]) -> Optional[str]:
+        """Extract the agent's error string (if any) from the agent output dict.
+
+        Subclasses (RunOpenClawAgent) may override to read a different field.
+        """
+        return out_dict.get("error")
+
+    def _extract_patch_and_eval_input(self, out_dict: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
+        """Pull the model patch + the SWE-bench evaluation input dict from the agent output.
+
+        OpenHands writes a deeply nested schema (test_result.git_patch, metadata.llm_config.*).
+        Subclasses can override to handle simpler / different output shapes.
+        """
+        patch = out_dict["test_result"]["git_patch"] or None
+        eval_input = {
+            "model_name_or_path": out_dict["metadata"]["llm_config"]["model"],
+            "instance_id": out_dict["instance_id"],
+            "model_patch": patch,
+            "oh_time_metrics": out_dict["metrics"],
+        }
+        return patch, eval_input
+
     async def process_single_datapoint(self) -> Optional[Path]:
         if self.config.verify_golden_patch:
             return await self._run_golden_patch_verification()
@@ -1477,25 +1539,17 @@ class RunOpenHandsAgent(BaseModel):
         with open(out_file, "r") as f:
             out_dict = json.loads(f.read().strip())
 
-        metrics.agent_error_kind = _classify_agent_error(out_dict.get("error"))
+        metrics.agent_error_kind = _classify_agent_error(self._extract_agent_error(out_dict))
 
-        patch = out_dict["test_result"]["git_patch"] or None
+        patch, eval_input = self._extract_patch_and_eval_input(out_dict)
         patch = patch + "\n" if patch and not patch.endswith("\n") else patch
+        eval_input["model_patch"] = patch
         metrics.model_patch = patch
 
         # Create file in the SWE-bench evaluation format
         self.config.output_for_eval_path.parent.mkdir(parents=True, exist_ok=True)
         with self.config.output_for_eval_path.open("w") as f:
-            f.write(
-                json.dumps(
-                    {
-                        "model_name_or_path": out_dict["metadata"]["llm_config"]["model"],
-                        "instance_id": out_dict["instance_id"],
-                        "model_patch": patch,
-                        "oh_time_metrics": out_dict["metrics"],
-                    }
-                )
-            )
+            f.write(json.dumps(eval_input))
 
         # Dump out dot and png files from profiling on OpenHands level
         if self.config.debug:
@@ -1638,12 +1692,25 @@ class SWEBenchWrapper(SimpleResponsesAPIAgent):
     def model_post_init(self, context: Any) -> None:
         run_session_id = f"{int(time.time() * 1000)}_{str(uuid.uuid4())[:8]}"
         workspace_root = Path(__file__).parent
+
+        if self.config.agent_framework == "openclaw":
+            # OpenClaw is provisioned by setup_scripts/openclaw.sh (executed via
+            # `apptainer exec`); the populated host dir is mounted read-only at
+            # /openclaw_setup during every rollout. The setup() return fills the
+            # openhands_setup_dir slot of the server config (slot name kept for
+            # back-compat across both frameworks).
+            from responses_api_agents.swe_agents.run_openclaw import OpenClawHarnessProcessor
+
+            agent_setup_dir = OpenClawHarnessProcessor(config=self.config).setup()
+        else:
+            agent_setup_dir = OpenHandsHarnessProcessor(config=self.config).setup()
+
         self._swe_bench_wrapper_server_config = SWEBenchWrapperServerConfig(
             run_session_id=run_session_id,
             base_results_dir=workspace_root / f"swebench_results_{run_session_id}",
             ng_global_config_dict_str=shlex.quote(OmegaConf.to_yaml(get_global_config_dict())),
             model_server_name=self.config.model_server.name,
-            openhands_setup_dir=OpenHandsHarnessProcessor(config=self.config).setup(),
+            openhands_setup_dir=agent_setup_dir,
             swebench_setup_dir=SweBenchDatasetProcessor(config=self.config).setup(),
             swebench_multilingual_setup_dir=SweBenchMultilingualDatasetProcessor(config=self.config).setup(),
             r2e_gym_setup_dir=R2EGymDatasetProcessor(config=self.config).setup(),
@@ -1812,38 +1879,59 @@ class SWEBenchWrapper(SimpleResponsesAPIAgent):
             f"--mount type=bind,src={params.persistent_dir},dst=/trajectories_mount",
         ]
 
-        openhands_dir = f"{params.openhands_setup_dir}/OpenHands"
-        mount_args.extend(
-            [
-                # Read-only base mounts (parent first)
-                f"--mount type=bind,src={openhands_dir},dst=/openhands_setup/OpenHands,ro",
-                f"--mount type=bind,src={openhands_dir},dst={openhands_dir},ro",
-                f"--mount type=bind,src={openhands_dir}/.eval_sessions,dst=/openhands_setup/OpenHands/.eval_sessions",
-                f"--mount type=bind,src={openhands_dir}/.eval_sessions,dst={openhands_dir}/.eval_sessions",
-                f"--mount type=bind,src={openhands_dir}/logs,dst=/openhands_setup/OpenHands/logs",
-                f"--mount type=bind,src={openhands_dir}/logs,dst={openhands_dir}/logs",
-                f"--mount type=bind,src={openhands_dir}/evaluation/oh,dst=/openhands_setup/OpenHands/evaluation/oh",
-                f"--mount type=bind,src={openhands_dir}/evaluation/oh,dst={openhands_dir}/evaluation/oh",
-                # Data
-                f"--mount type=bind,src={dataset_path_to_mount},dst=/root/dataset/data.jsonl",
-            ]
-        )
+        # OpenHands needs its host-built setup tree (the cloned fork + miniforge3
+        # venv) bind-mounted into the SIF. OpenClaw uses its own host setup tree
+        # (Node toolchain + openclaw npm install + workspace template) mounted at
+        # /openclaw_setup. The eval container still uses the OpenHands mounts for
+        # some datasets — see below — so for openclaw + eval mode we keep the OH
+        # mounts.
+        is_openclaw_agent = params.agent_framework == "openclaw" and command.mode == "agent"
+        if is_openclaw_agent:
+            # openhands_setup_dir holds the openclaw setup tree (slot name kept
+            # for back-compat). Mount node toolchain, openclaw install, and
+            # workspace template ro at /openclaw_setup.
+            openclaw_setup = params.openhands_setup_dir
+            mount_args.extend(
+                [
+                    f"--mount type=bind,src={openclaw_setup}/node,dst=/openclaw_setup/node,ro",
+                    f"--mount type=bind,src={openclaw_setup}/openclaw,dst=/openclaw_setup/openclaw,ro",
+                    f"--mount type=bind,src={openclaw_setup}/home_template,dst=/openclaw_setup/home_template,ro",
+                    f"--mount type=bind,src={dataset_path_to_mount},dst=/root/dataset/data.jsonl",
+                ]
+            )
+        else:
+            openhands_dir = f"{params.openhands_setup_dir}/OpenHands"
+            mount_args.extend(
+                [
+                    # Read-only base mounts (parent first)
+                    f"--mount type=bind,src={openhands_dir},dst=/openhands_setup/OpenHands,ro",
+                    f"--mount type=bind,src={openhands_dir},dst={openhands_dir},ro",
+                    f"--mount type=bind,src={openhands_dir}/.eval_sessions,dst=/openhands_setup/OpenHands/.eval_sessions",
+                    f"--mount type=bind,src={openhands_dir}/.eval_sessions,dst={openhands_dir}/.eval_sessions",
+                    f"--mount type=bind,src={openhands_dir}/logs,dst=/openhands_setup/OpenHands/logs",
+                    f"--mount type=bind,src={openhands_dir}/logs,dst={openhands_dir}/logs",
+                    f"--mount type=bind,src={openhands_dir}/evaluation/oh,dst=/openhands_setup/OpenHands/evaluation/oh",
+                    f"--mount type=bind,src={openhands_dir}/evaluation/oh,dst={openhands_dir}/evaluation/oh",
+                    # Data
+                    f"--mount type=bind,src={dataset_path_to_mount},dst=/root/dataset/data.jsonl",
+                ]
+            )
 
-        if params.resolved_user_prompt_template:
-            mount_args.append(
-                f"--mount type=bind,src={params.resolved_user_prompt_template},dst=/openhands_setup/OpenHands/user_prompt.j2"
-            )
-        if params.resolved_system_prompt_template:
-            mount_args.append(
-                f"--mount type=bind,src={params.resolved_system_prompt_template},dst=/openhands_setup/OpenHands/system_prompt.j2"
-            )
-            mount_args.append(
-                f"--mount type=bind,src={params.resolved_system_prompt_template},dst=/openhands_setup/OpenHands/system_prompt_long_horizon.j2"
-            )
+            if params.resolved_user_prompt_template:
+                mount_args.append(
+                    f"--mount type=bind,src={params.resolved_user_prompt_template},dst=/openhands_setup/OpenHands/user_prompt.j2"
+                )
+            if params.resolved_system_prompt_template:
+                mount_args.append(
+                    f"--mount type=bind,src={params.resolved_system_prompt_template},dst=/openhands_setup/OpenHands/system_prompt.j2"
+                )
+                mount_args.append(
+                    f"--mount type=bind,src={params.resolved_system_prompt_template},dst=/openhands_setup/OpenHands/system_prompt_long_horizon.j2"
+                )
 
-        miniforge3_path = Path(params.openhands_setup_dir) / "miniforge3"
-        mount_args.append(f"--mount type=bind,src={miniforge3_path},dst=/openhands_setup/miniforge3,ro")
-        mount_args.append(f"--mount type=bind,src={miniforge3_path},dst={miniforge3_path},ro")
+            miniforge3_path = Path(params.openhands_setup_dir) / "miniforge3"
+            mount_args.append(f"--mount type=bind,src={miniforge3_path},dst=/openhands_setup/miniforge3,ro")
+            mount_args.append(f"--mount type=bind,src={miniforge3_path},dst={miniforge3_path},ro")
 
         # Add SWE-bench setup directory mount if available (for evaluation)
         # swe-bench-ext and nv-internal-1 don't use the swebench harness
@@ -2072,7 +2160,12 @@ class SWEBenchWrapper(SimpleResponsesAPIAgent):
         params.eval_command = dataset_processor.get_run_command()
         params.eval_apptainer_command_str = self._build_apptainer_command(params, params.eval_command)
 
-        params.agent_command = OpenHandsHarnessProcessor(config=params).get_run_command()
+        if params.agent_framework == "openclaw":
+            from responses_api_agents.swe_agents.run_openclaw import OpenClawHarnessProcessor
+
+            params.agent_command = OpenClawHarnessProcessor(config=params).get_run_command()
+        else:
+            params.agent_command = OpenHandsHarnessProcessor(config=params).get_run_command()
         params.agent_apptainer_command_str = self._build_apptainer_command(params, params.agent_command)
         params.agent_script = params.agent_script_path.read_text()
 
@@ -2131,9 +2224,16 @@ class SWEBenchWrapper(SimpleResponsesAPIAgent):
             params.mask_sample = True
 
         trajectories_dir = params.persistent_dir / "trajectories"
-        chat_completions_trajectory, chat_completions_tools = self.get_openhands_trajectory_from_completions(
-            trajectories_dir, params.instance_id
-        )
+        if params.agent_framework == "openclaw":
+            from responses_api_agents.swe_agents.run_openclaw import get_openclaw_trajectory_from_session
+
+            chat_completions_trajectory, chat_completions_tools = get_openclaw_trajectory_from_session(
+                trajectories_dir, params.instance_id
+            )
+        else:
+            chat_completions_trajectory, chat_completions_tools = self.get_openhands_trajectory_from_completions(
+                trajectories_dir, params.instance_id
+            )
 
         tools = [
             FunctionTool.model_validate(tool["function"] | {"type": "function"}) for tool in chat_completions_tools
@@ -2163,7 +2263,10 @@ class SWEBenchWrapper(SimpleResponsesAPIAgent):
 
     async def run(self, body: BaseRunRequest) -> SWEBenchVerifyResponse:
         async with self._sem:
-            body.responses_create_params.parallel_tool_calls = True
+            # OpenClaw issues sequential tool calls (one per turn); OpenHands runs
+            # tools in parallel. Setting this correctly avoids unnecessary fan-out
+            # warnings on the openclaw path.
+            body.responses_create_params.parallel_tool_calls = self.config.agent_framework != "openclaw"
             body.responses_create_params.tool_choice = "auto"
 
             response = await self.responses(body.responses_create_params)

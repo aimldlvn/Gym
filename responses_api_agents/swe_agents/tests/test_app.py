@@ -2008,3 +2008,339 @@ class TestLoadRebenchLogParsers:
 
             mod = _load_rebench_log_parsers(rebench_dir)
             assert "lib_test" in mod.NAME_TO_PARSER
+
+
+########################################
+# OpenClawHarnessProcessor tests
+########################################
+
+
+class TestOpenClawHarnessProcessor:
+    def test_setup_skips_when_marker_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from responses_api_agents.swe_agents.run_openclaw import OpenClawHarnessProcessor
+
+            config = _make_instance_config(
+                tmpdir,
+                agent_framework="openclaw",
+                openclaw_setup_sif="/path/to/setup.sif",
+                openclaw_npm_pin="latest",
+            )
+            processor = OpenClawHarnessProcessor(config=config)
+            setup_dir = processor.parent_dir / "swe_openclaw_setup"
+            setup_dir.mkdir(parents=True, exist_ok=True)
+            marker = setup_dir / ".openclaw_setup_done"
+            marker.touch()
+
+            try:
+                with patch.object(processor, "_run_setup_command") as mock_run:
+                    result = processor.setup()
+                    mock_run.assert_not_called()
+                assert result == setup_dir
+            finally:
+                marker.unlink(missing_ok=True)
+
+    def test_setup_raises_when_setup_sif_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from responses_api_agents.swe_agents.run_openclaw import OpenClawHarnessProcessor
+
+            config = _make_instance_config(
+                tmpdir,
+                agent_framework="openclaw",
+                openclaw_setup_sif=None,
+            )
+            processor = OpenClawHarnessProcessor(config=config)
+            setup_dir = processor.parent_dir / "swe_openclaw_setup"
+            marker = setup_dir / ".openclaw_setup_done"
+            if marker.exists():
+                marker.unlink()
+
+            with pytest.raises(ValueError, match="openclaw_setup_sif"):
+                processor.setup()
+
+    def test_setup_builds_apptainer_exec_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from responses_api_agents.swe_agents.run_openclaw import OpenClawHarnessProcessor
+
+            config = _make_instance_config(
+                tmpdir,
+                agent_framework="openclaw",
+                openclaw_setup_sif="/path/to/setup.sif",
+                openclaw_npm_pin="1.2.3",
+            )
+            processor = OpenClawHarnessProcessor(config=config)
+            setup_dir = processor.parent_dir / "swe_openclaw_setup"
+            marker = setup_dir / ".openclaw_setup_done"
+            if marker.exists():
+                marker.unlink()
+
+            captured: list[str] = []
+
+            def _capture(self_, command):
+                captured.append(command)
+
+            with patch.object(OpenClawHarnessProcessor, "_run_setup_command", _capture):
+                processor.setup()
+
+            assert len(captured) == 1
+            cmd = captured[0]
+            assert "apptainer exec" in cmd
+            assert "--bind" in cmd and ":/setup" in cmd
+            assert "/path/to/setup.sif" in cmd
+            assert "SETUP_DIR=/setup" in cmd
+            assert "OPENCLAW_NPM_PIN=1.2.3" in cmd
+            assert "setup_scripts/openclaw.sh" in cmd
+
+    def test_get_run_command_emits_runner_invocation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from responses_api_agents.swe_agents.run_openclaw import OpenClawHarnessProcessor
+
+            config = _make_instance_config(
+                tmpdir,
+                agent_framework="openclaw",
+                openclaw_setup_sif="/path/to/setup.sif",
+            )
+            config.persistent_dir.mkdir(parents=True, exist_ok=True)
+            processor = OpenClawHarnessProcessor(config=config)
+
+            with patch(
+                "responses_api_agents.swe_agents.run_openclaw.get_server_url", return_value="http://localhost:9001"
+            ):
+                result = processor.get_run_command()
+
+            assert isinstance(result, ExecuteContainerCommandArgs)
+            assert result.mode == "agent"
+            script_path = config.persistent_dir / f"agent_script_{config.agent_run_id}.sh"
+            script = script_path.read_text()
+            assert "/openclaw_setup/node/bin" in script
+            assert "/openclaw_setup/openclaw/node_modules/.bin" in script
+            assert "openclaw_runner.py" in script
+            assert "/openclaw_setup/home_template" in script
+
+    @staticmethod
+    def _load_workspace_template_config() -> dict:
+        """Parse the openclaw.json heredoc out of setup_scripts/openclaw.sh.
+
+        Returns the dict so individual security tests can assert on
+        specific keys without reparsing.
+        """
+        import json
+        import re
+
+        script_path = Path(__file__).parent.parent / "setup_scripts" / "openclaw.sh"
+        script = script_path.read_text()
+        match = re.search(
+            r"cat > \"\$TPL/openclaw\.json\" <<'EOF'\n(.*?)\nEOF",
+            script,
+            re.DOTALL,
+        )
+        assert match is not None, "could not locate the openclaw.json heredoc in openclaw.sh"
+        return json.loads(match.group(1))
+
+    def test_setup_script_workspace_template_pins_tool_allowlist(self) -> None:
+        """The openclaw.json baked by setup_scripts/openclaw.sh must declare an
+        explicit tools allowlist, not the default profile=coding.
+
+        The default `coding` profile activates 21 tools including web_search,
+        web_fetch, x_search, image_generate, video_generate, music_generate,
+        code_execution (remote-execution), sessions_spawn, subagents, cron, and
+        memory_*. For cluster eval inside a SIF we want only fs+runtime tools.
+        Regression here would silently re-broaden the agent's tool surface.
+        """
+        cfg = self._load_workspace_template_config()
+        tools = cfg.get("tools", {})
+        assert "profile" not in tools, (
+            f"openclaw.json must NOT use tools.profile (saw {tools!r}); use tools.allow with an explicit list."
+        )
+        assert tools.get("allow") == [
+            "read",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process",
+        ], f"openclaw.json tools.allow drifted from the pinned set; saw {tools!r}"
+
+    def test_setup_script_workspace_template_pins_fs_workspace_only(self) -> None:
+        """tools.fs.workspaceOnly must be true to confine fs tools to the
+        agent workspace dir (defence in depth on top of SIF mounts)."""
+        cfg = self._load_workspace_template_config()
+        assert cfg.get("tools", {}).get("fs", {}).get("workspaceOnly") is True, (
+            f"tools.fs.workspaceOnly must be true; saw {cfg.get('tools', {}).get('fs')!r}"
+        )
+
+    def test_setup_script_workspace_template_pins_exec_ask_off(self) -> None:
+        """tools.exec.ask must be 'off' for unattended eval. The SIF is the
+        security boundary; per-command approval would deadlock the rollout."""
+        cfg = self._load_workspace_template_config()
+        assert cfg.get("tools", {}).get("exec", {}).get("ask") == "off", (
+            f"tools.exec.ask must be 'off'; saw {cfg.get('tools', {}).get('exec')!r}"
+        )
+
+    def test_setup_script_workspace_template_disables_skills(self) -> None:
+        """Three independent skill-disable mechanisms must all be set
+        (belt-and-suspenders):
+        1. limits.maxSkillsInPrompt=0  -> empties the prompt slice
+        2. allowBundled=[<sentinel>]   -> filters bundled discovery
+        3. entries.<each>.enabled=false -> per-skill kill switch
+
+        If any future openclaw version changes how one mechanism is
+        enforced, the other two still hold. The runtime test
+        (test_runtime_skills_completely_disabled) confirms entries=[]
+        regardless of which layer is doing the work."""
+        cfg = self._load_workspace_template_config()
+        skills = cfg.get("skills", {})
+        # Layer 1: prompt-slice cap
+        limits = skills.get("limits", {})
+        assert limits.get("maxSkillsInPrompt") == 0, f"skills.limits.maxSkillsInPrompt must be 0; saw {limits!r}"
+        assert limits.get("maxSkillsPromptChars") == 0, f"skills.limits.maxSkillsPromptChars must be 0; saw {limits!r}"
+        # Layer 2: bundled discovery filter (non-empty array matching
+        # nothing — empty array is treated as "no allowlist" by openclaw,
+        # which is the wrong direction for us).
+        allow_bundled = skills.get("allowBundled")
+        assert (
+            isinstance(allow_bundled, list)
+            and len(allow_bundled) > 0
+            and not any(
+                s
+                in (
+                    "browser-automation",
+                    "healthcheck",
+                    "node-connect",
+                    "skill-creator",
+                    "taskflow",
+                    "taskflow-inbox-triage",
+                    "weather",
+                )
+                for s in allow_bundled
+            )
+        ), (
+            f"skills.allowBundled must be a non-empty list that matches "
+            f"none of the known bundled skills; saw {allow_bundled!r}"
+        )
+        # Layer 3: per-skill kill switch for the 7 known bundled skills.
+        entries = skills.get("entries", {})
+        for name in (
+            "browser-automation",
+            "healthcheck",
+            "node-connect",
+            "skill-creator",
+            "taskflow",
+            "taskflow-inbox-triage",
+            "weather",
+        ):
+            assert entries.get(name, {}).get("enabled") is False, (
+                f"skills.entries.{name}.enabled must be false; saw {entries.get(name)!r}"
+            )
+
+    def test_setup_script_workspace_template_pins_plugin_allowlist(self) -> None:
+        """plugins must use an explicit allow + allowlist discovery so the
+        ~48 unused bundled plugins don't load into the JS process."""
+        cfg = self._load_workspace_template_config()
+        plugins = cfg.get("plugins", {})
+        assert plugins.get("bundledDiscovery") == "allowlist", (
+            f"plugins.bundledDiscovery must be 'allowlist'; saw {plugins!r}"
+        )
+        assert isinstance(plugins.get("allow"), list) and set(plugins.get("allow", [])) == {"openai", "vllm"}, (
+            f"plugins.allow must be exactly [openai, vllm]; saw {plugins!r}"
+        )
+
+    def test_setup_script_workspace_template_disables_heartbeat(self) -> None:
+        """agents.defaults.heartbeat.every must be very long to prevent
+        background turns from firing during a rollout."""
+        cfg = self._load_workspace_template_config()
+        heartbeat = cfg.get("agents", {}).get("defaults", {}).get("heartbeat", {})
+        assert heartbeat.get("every") == "999d", f"agents.defaults.heartbeat.every must be '999d'; saw {heartbeat!r}"
+
+    def test_setup_script_workspace_template_skips_bootstrap(self) -> None:
+        """agents.defaults.skipBootstrap must be true (belt-and-suspenders
+        on top of the workspace-state.json setupCompletedAt seeding)."""
+        cfg = self._load_workspace_template_config()
+        defaults = cfg.get("agents", {}).get("defaults", {})
+        assert defaults.get("skipBootstrap") is True, f"agents.defaults.skipBootstrap must be true; saw {defaults!r}"
+
+    def test_setup_script_workspace_template_disables_startup_context(self) -> None:
+        """agents.defaults.startupContext.enabled must be false.
+
+        Default is true. With it on, openclaw reads workspace memory
+        files (MEMORY.md, memory/<date>.md) at agent startup and
+        injects their contents into the initial system prompt — even
+        when memory plugins are disabled. That's a per-rollout prompt-
+        mutation hole that would break RL training token contiguity
+        if the workspace ever accumulates memory files."""
+        cfg = self._load_workspace_template_config()
+        defaults = cfg.get("agents", {}).get("defaults", {})
+        sc = defaults.get("startupContext", {})
+        assert sc.get("enabled") is False, (
+            "agents.defaults.startupContext.enabled must be false to "
+            "prevent openclaw from auto-injecting workspace memory "
+            f"files into the initial prompt; saw {sc!r}"
+        )
+
+    def test_setup_script_workspace_template_disables_memory_slot(self) -> None:
+        """plugins.slots.memory must be 'none'.
+
+        Belt-and-suspenders on top of the plugins allowlist (which
+        already prevents memory plugins from loading). Explicitly
+        disclaiming the slot ensures no built-in memory adapter binds
+        it even if openclaw ships one in the future."""
+        cfg = self._load_workspace_template_config()
+        slots = cfg.get("plugins", {}).get("slots", {})
+        assert slots.get("memory") == "none", f"plugins.slots.memory must be 'none'; saw {slots!r}"
+
+    def test_setup_script_workspace_template_disables_loop_detection(self) -> None:
+        """tools.loopDetection.enabled must be false (matches default).
+
+        For RL training, loop detection adds non-determinism — the
+        abort trigger depends on tool-call history which depends on
+        the model's behaviour. We rely on --timeout for runaway
+        protection instead. Setting this explicitly catches a future
+        default flip."""
+        cfg = self._load_workspace_template_config()
+        ld = cfg.get("tools", {}).get("loopDetection", {})
+        assert ld.get("enabled") is False, f"tools.loopDetection.enabled must be false; saw {ld!r}"
+
+    def test_yaml_openclaw_npm_pin_is_specific_version(self) -> None:
+        """openclaw_npm_pin in swebench_openclaw.yaml must be a specific
+        semver version (e.g. '2026.5.6'), NOT 'latest'. A floating pin is
+        a supply-chain hazard and breaks reproducibility — every cluster
+        rollout could resolve to a different openclaw build, including
+        new versions whose security posture we haven't audited.
+
+        Bump deliberately and re-run the security test suite before
+        committing changes to this value."""
+        import re
+
+        yaml_path = Path(__file__).parent.parent / "configs" / "swebench_openclaw.yaml"
+        text = yaml_path.read_text()
+        match = re.search(r"^\s*openclaw_npm_pin:\s*(\S+)\s*$", text, re.MULTILINE)
+        assert match is not None, "could not find openclaw_npm_pin in swebench_openclaw.yaml"
+        pin = match.group(1)
+        assert pin != "latest", (
+            "openclaw_npm_pin must be a specific version, not 'latest'. "
+            "Floating pin = unreproducible installs + unaudited "
+            "supply-chain risk."
+        )
+        # Loose semver shape: <major>.<minor>.<patch>[-prerelease]
+        assert re.match(r"^\d+\.\d+\.\d+", pin), f"openclaw_npm_pin doesn't look like a semver version: {pin!r}"
+
+    def test_setup_script_workspace_template_pins_network_off(self) -> None:
+        """gateway, discovery, update sections must all explicitly disable
+        listeners and outbound checks. Defence against future default flips."""
+        cfg = self._load_workspace_template_config()
+        gateway = cfg.get("gateway", {})
+        assert gateway.get("bind") == "loopback", f"gateway.bind must be 'loopback'; saw {gateway!r}"
+        assert gateway.get("controlUi", {}).get("enabled") is False, (
+            f"gateway.controlUi.enabled must be false; saw {gateway!r}"
+        )
+        assert gateway.get("tailscale", {}).get("mode") == "off", (
+            f"gateway.tailscale.mode must be 'off'; saw {gateway!r}"
+        )
+        discovery = cfg.get("discovery", {})
+        assert discovery.get("mdns", {}).get("mode") == "off", f"discovery.mdns.mode must be 'off'; saw {discovery!r}"
+        assert discovery.get("wideArea", {}).get("enabled") is False, (
+            f"discovery.wideArea.enabled must be false; saw {discovery!r}"
+        )
+        update = cfg.get("update", {})
+        assert update.get("auto", {}).get("enabled") is False, f"update.auto.enabled must be false; saw {update!r}"
+        assert update.get("checkOnStart") is False, f"update.checkOnStart must be false; saw {update!r}"

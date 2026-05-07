@@ -1,0 +1,74 @@
+# SWE-bench wrapper configuration for OpenClaw.
+#
+# OpenClaw is provisioned by responses_api_agents/swe_agents/setup_scripts/openclaw.sh,
+# which runs inside `apptainer exec <openclaw_setup_sif>` and populates
+# responses_api_agents/swe_agents/swe_openclaw_setup/ on the host with:
+#   - node/                Node 22 toolchain
+#   - openclaw/            openclaw npm install + plugin packages
+#   - home_template/       pre-bootstrapped ~/.openclaw template
+# The populated dir is mounted read-only at /openclaw_setup in every rollout SIF.
+swe_agents:
+  responses_api_agents:
+    swe_agents:
+      entrypoint: app.py
+      domain: coding
+      description: SWE-bench driven by the OpenClaw agent framework.
+      value: Eval software engineering capabilities on SWE-bench.
+
+      # Agent framework configuration
+      agent_framework: openclaw
+      agent_max_turns: 30
+
+      # OpenClaw distribution
+      # npm package spec passed to `npm install openclaw@...` by the setup
+      # script. PIN to a specific version (no `latest`) for reproducibility
+      # and supply-chain safety. Bump deliberately.
+      openclaw_npm_pin: 2026.5.6
+      # Path to one SWE-bench SIF used by setup_scripts/openclaw.sh as the
+      # `apptainer exec` host environment. Any instance SIF works — the SIF
+      # is used purely as a Linux env with curl + tar; openclaw runs inside
+      # it via `apptainer exec` so it never executes outside a container.
+      openclaw_setup_sif: ???
+      # In-SIF path to the openclaw HOME template. Matches the dst of the
+      # bind mount built by _build_apptainer_command for the openclaw path.
+      openclaw_home_template_path: /openclaw_setup/home_template
+
+      # Container configuration
+      container_formatter: ???
+      container_folder_path: null
+      swebench_agent_timeout: 1800
+      swebench_tests_timeout: 900
+      apptainer_memory_limit_mb: 32768
+      command_exec_timeout: 300
+
+      dataset_path: ???
+
+      # Model server reference. Apptainer uses the host network namespace by
+      # default, so the openclaw runner reaches this server via http://localhost.
+      model_server:
+        name: policy_model
+        type: responses_api_models
+
+      datasets:
+        # Training dataset
+        - name: train
+          type: train
+          jsonl_fpath: responses_api_agents/swe_agents/data/swegym_for_sweagent_and_openhands.jsonl
+          gitlab_identifier:
+            dataset_name: swegym_for_sweagent_and_openhands
+            version: 0.0.2
+            artifact_fpath: swegym-converted.jsonl
+          license: Apache 2.0
+        # Validation dataset
+        - name: validation
+          type: validation
+          jsonl_fpath: responses_api_agents/swe_agents/data/swebench_verified_for_sweagent_and_openhands.jsonl
+          gitlab_identifier:
+            dataset_name: swebench_verified_for_sweagent_and_openhands
+            version: 0.0.1
+            artifact_fpath: swebench_verified_for_sweagent_and_openhands.jsonl
+          license: TBD
+        # Example dataset for quick testing
+        - name: example
+          type: example
+          jsonl_fpath: responses_api_agents/swe_agents/data/example.jsonl
