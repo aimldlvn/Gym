@@ -114,6 +114,8 @@ benign because all writers produce identical data for the same company.
 
 ### 1. Prepare the dataset
 
+#### Custom questions (`convert_questions.py`)
+
 The input is a JSONL file with question/answer pairs. An example is provided at
 `resources_servers/finance_sec_search/data/example_questions.jsonl`:
 
@@ -122,9 +124,15 @@ The input is a JSONL file with question/answer pairs. An example is provided at
 {"question": "As of September 24, 2022 how many full-time equivalent employees did Apple have?", "expected_answer": "164,000"}
 ```
 
-Convert the questions into the Gym input format (adds tool definitions, system prompt, etc.)
+Convert raw questions into Gym input format (adds tool definitions, system prompt, etc.):
 
-Use the `--include-web-search` flag to include the optional `web_search` tool:
+```bash
+python resources_servers/finance_sec_search/scripts/convert_questions.py \
+  --input resources_servers/finance_sec_search/data/example_questions.jsonl \
+  --output resources_servers/finance_sec_search/data/example.jsonl
+```
+
+Add `--include-web-search` / `-w` to include the optional `web_search` tool:
 
 ```bash
 python resources_servers/finance_sec_search/scripts/convert_questions.py \
@@ -132,6 +140,37 @@ python resources_servers/finance_sec_search/scripts/convert_questions.py \
   --output resources_servers/finance_sec_search/data/example.jsonl \
   --include-web-search
 ```
+
+A pre-converted `example.jsonl` (without web search) is checked in and ready to
+use — you only need to re-run `convert_questions.py` if you modify the raw
+questions or want to change the tool set.
+
+#### Vals AI public benchmark (`prepare.py`)
+
+The [Vals AI finance-agent](https://github.com/vals-ai/finance-agent) 50-question
+public benchmark lives in `benchmarks/finance_sec_search/`. It downloads the
+`public.csv` dataset from GitHub and converts it to Gym format:
+
+```bash
+# Prepare via Gym CLI (recommended — used by ng_run with benchmark configs):
+ng_prepare_benchmark +benchmark=benchmarks/finance_sec_search/config_no_web_search.yaml
+
+# Or run the script directly:
+python benchmarks/finance_sec_search/prepare.py            # without web_search
+python benchmarks/finance_sec_search/prepare.py --include-web-search  # with web_search
+```
+
+Output is written to `benchmarks/finance_sec_search/data/`:
+
+| Config | Prepare script | Output file |
+|--------|---------------|-------------|
+| `config_no_web_search.yaml` | `prepare.py` | `finance_sec_search_benchmark.jsonl` |
+| `config_web_search.yaml` | `prepare_web_search.py` | `finance_sec_search_benchmark_web_search.jsonl` |
+
+> **Note:** `prepare.py` duplicates the prompt and tool definitions from
+> `convert_questions.py`. They are functionally identical — `convert_questions.py`
+> is the canonical source for custom questions, while `prepare.py` is specific to
+> downloading and converting the Vals AI dataset.
 
 #### SecQue benchmark
 
@@ -146,15 +185,23 @@ This writes `data/secque_questions.jsonl`. Use it as the `input_jsonl_fpath` in 
 
 **Note that this dataset is not used for training anywhere and is only used for eval/benchmark purposes.**
 
-
 ### 2. Start the vLLM server
 
 Launch a vLLM-compatible model server (e.g. Qwen3-30B-A3B) so the policy and judge endpoints are available.
 
 ### 3. Start the Gym servers
 
+With a local vLLM model server:
+
 ```bash
 config_paths="responses_api_models/vllm_model/configs/vllm_model.yaml,resources_servers/finance_sec_search/configs/finance_sec_search.yaml"
+ng_run "+config_paths=[$config_paths]"
+```
+
+Or with an OpenAI-compatible API (e.g. OpenAI, Azure, NIM):
+
+```bash
+config_paths="responses_api_models/openai_model/configs/openai_model.yaml,resources_servers/finance_sec_search/configs/finance_sec_search.yaml"
 ng_run "+config_paths=[$config_paths]"
 ```
 
