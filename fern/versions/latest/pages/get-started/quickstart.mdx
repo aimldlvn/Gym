@@ -1,46 +1,14 @@
 ---
-title: "Getting Started"
-description: "Install NeMo Gym, start evaluating and training models and agents."
-position: 2
+title: "Quickstart"
+description: "Start evaluating and training models and agents with NeMo Gym."
+position: 3
 ---
 
-# Getting Started
+# Quickstart
 
-## Installation
-
-Requires Python 3.12+ on x86_64 or ARM64 (Linux, macOS, Windows via WSL2). No GPU required.
-
-<Tabs>
-<Tab title="Git clone">
-
-```bash
-git clone git@github.com:NVIDIA-NeMo/Gym.git
-cd Gym
-uv venv --python 3.12 && source .venv/bin/activate
-uv sync
-```
-
-</Tab>
-<Tab title="pip install">
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install nemo-gym
-```
-
-</Tab>
-<Tab title="Container">
-
-For RL training with NeMo RL, use the latest NGC container:
-
-```bash
-docker pull nvcr.io/nvidia/nemo-rl:v0.5.0.nemotron_3_super
-```
-
-See the [NeMo RL training tutorial](/latest/training-tutorials/nemo-rl-grpo/setup) for setup details.
-
-</Tab>
-</Tabs>
+<Info>
+This guide assumes NeMo Gym is already installed. If not, see [Installation](/latest/get-started/installation).
+</Info>
 
 ## CLI
 
@@ -132,7 +100,7 @@ Explore available benchmarks and training environments.
 Explore available agent harnesses and learn how to integrate your own.
 </Card>
 
-<Card title="Evaluation" href="/latest/getting-started#run-evaluation">
+<Card title="Evaluation" href="/latest/get-started/quickstart#run-evaluation">
 Run benchmarks and custom evals at scale.
 </Card>
 
