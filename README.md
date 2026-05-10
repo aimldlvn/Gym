@@ -25,55 +25,90 @@ NeMo Gym is part of [NVIDIA NeMo](https://docs.nvidia.com/nemo/gym/latest/about/
 
 ## 🚀 Quick Start
 
-Requires Python 3.12+ on x86_64 or ARM64 (Linux, macOS, Windows via WSL2). No GPU required. See the [Getting Started](https://docs.nvidia.com/nemo/gym/latest/getting-started) guide for full setup options.
+Requires Python 3.12+ on x86_64 or ARM64 (Linux, macOS, Windows via WSL2). No GPU required. See the [Getting Started](https://docs.nvidia.com/nemo/gym/latest/get-started/prerequisites) docs for a more comprehensive walkthrough.
 
-Install NeMo Gym:
+**Install NeMo Gym:**
 ```bash
 git clone git@github.com:NVIDIA-NeMo/Gym.git
 cd Gym
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env
 uv venv --python 3.12 && source .venv/bin/activate
 uv sync
 ```
 
-Explore available commands and environments:
+**Configure your model:**
 
+This example uses OpenAI, but NeMo Gym works with any OpenAI-compatible endpoint including self-hosted vLLM.
 ```bash
-ng_help
-ng_list_benchmarks
+cat > env.yaml << EOF
+policy_base_url: https://api.openai.com/v1
+policy_api_key: <your-openai-api-key>
+policy_model_name: gpt-4.1-2025-04-14
+EOF
 ```
 
 ### Run Evaluation
 
-Start your model and agent servers:
+Run your agent on a set of tasks and score the results. This example uses the [`mcqa`](resources_servers/mcqa/README.md) (multiple-choice Q&A) environment with its included example data.
+
+**1. Start servers**
+
+NeMo Gym uses local servers to coordinate your model, agent, and task verification. Start them first:
 
 ```bash
-ng_run "+config_paths=[<model_config>,<agent_config>]"
+environment_config="resources_servers/mcqa/configs/mcqa.yaml"
+model_config="responses_api_models/openai_model/configs/openai_model.yaml"
+
+ng_run "+config_paths=[${environment_config},${model_config}]"
 ```
 
-Evaluate your agent on your task dataset:
+You should see three server instances starting:
+
+```text
+[1] mcqa (resources_servers/mcqa)
+[2] mcqa_simple_agent (responses_api_agents/simple_agent)
+[3] policy_model (responses_api_models/openai_model)
+```
+
+**2. Evaluate your agent** 
+
+In a new terminal, run your agent on the tasks:
 
 ```bash
+source .venv/bin/activate
+
 ng_collect_rollouts \
-    +agent_name=<agent> \
-    +input_jsonl_fpath=<data> \
-    +output_jsonl_fpath=<output>
+    +agent_name=mcqa_simple_agent \
+    +input_jsonl_fpath=resources_servers/mcqa/data/example.jsonl \
+    +output_jsonl_fpath=results/mcqa_rollouts.jsonl \
+    +num_repeats=2
 ```
 
-Calculate evaluation metrics:
+You should see a progress bar followed by aggregate metrics:
 
-```bash
-ng_reward_profile \
-    +materialized_inputs_jsonl_fpath=<data> \
-    +rollouts_jsonl_fpath=<output>
+```text
+Collecting rollouts: 100%|██████| 10/10 [00:10<00:00, 1.01s/it]
+
+Key metrics for mcqa_simple_agent:
+{
+    "mean/reward": 0.7,
+    "pass@1[avg-of-2]/accuracy": 70.0,
+    "pass@1/accuracy": 70.0
+}
+Finished rollout collection! View results at:
+Rollouts: results/mcqa_rollouts.jsonl
+Aggregate metrics: results/mcqa_rollouts_aggregate_metrics.json
 ```
+
+These rollouts can also be used as training data with verification scores. For per-task pass rates, see the [`ng_reward_profile`](https://docs.nvidia.com/nemo/gym/latest/reference/cli-commands) command.
 
 ### Next Steps
 
-- **Browse environments** — Explore available benchmarks and training environments in the [Available Environments](#-available-environments) table below.
-- **Agents** — Explore available agent harnesses and learn how to integrate your own. See [Agent Server](https://docs.nvidia.com/nemo/gym/latest/agent-server/index.html).
-- **Evaluation** — Run benchmarks and custom evals at scale. See [Getting Started](https://docs.nvidia.com/nemo/gym/latest/getting-started#run-evaluation).
-- **Training** — Improve your agent or model with RL or fine-tuning. See the [Training Tutorials](https://docs.nvidia.com/nemo/gym/latest/training-tutorials/index.html).
-- **Build custom environments** — Create your own evaluation or training environments. See the [Environment Tutorials](https://docs.nvidia.com/nemo/gym/latest/environment-tutorials/index.html).
+- **[Browse Environments](#-available-environments)** — Browse available environments for evaluation and training.
+- **[Agents](https://docs.nvidia.com/nemo/gym/latest/agent-server/index.html)** — Explore available agent harnesses and learn how to integrate your own.
+- **[Training](https://docs.nvidia.com/nemo/gym/latest/training-tutorials/index.html)** — Improve your agent or model with RL or fine-tuning.
+- **[Build Custom Environments](https://docs.nvidia.com/nemo/gym/latest/environment-tutorials/index.html)** — Create your own evaluation or training environments.
 
 
 ## 📦 Available Environments
