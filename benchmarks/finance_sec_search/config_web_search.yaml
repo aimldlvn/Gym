@@ -5,7 +5,7 @@ config_paths:
 # Defaults for judge model interpolation variables from finance_sec_search.yaml.
 # Override via env.yaml or CLI when running actual evaluations.
 search_judge_model_base_url: https://api.openai.com/v1
-search_judge_model_api_key: placeholder
+search_judge_model_api_key: ""
 search_judge_model_name: gpt-4o
 
 # Isolated copy of the resource server for this benchmark
