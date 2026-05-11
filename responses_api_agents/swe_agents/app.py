@@ -138,6 +138,16 @@ class SWEBenchWrapperConfig(BaseResponsesAPIAgentConfig):
         ),
     )
 
+    skip_eval: bool = Field(
+        default=False,
+        description=(
+            "If True, run the agent normally but skip the eval container "
+            "entirely. The reward is forced to 0 since the patch is never "
+            "graded. Useful for collecting agent trajectories without paying "
+            "the eval cost."
+        ),
+    )
+
     agent_prompt_overrides: Optional[list[AgentPromptOverride]] = Field(
         default=None,
         description="List of (user_prompt_template, system_prompt_template, agent_cls) overrides. "
@@ -1438,8 +1448,10 @@ class RunOpenHandsAgent(BaseModel):
         openhands_active_command = await self._start_container_command(
             self.config.agent_command, self.config.agent_apptainer_command_str
         )
-        eval_active_command = await self._start_container_command(
-            self.config.eval_command, self.config.eval_apptainer_command_str
+        eval_active_command = (
+            None
+            if self.config.skip_eval
+            else await self._start_container_command(self.config.eval_command, self.config.eval_apptainer_command_str)
         )
 
         try:
@@ -1453,7 +1465,8 @@ class RunOpenHandsAgent(BaseModel):
                 self._openhands_dir_copy_from_host(output_file_path=None)
             except Exception:
                 pass
-            await self._kill_active_command(eval_active_command)
+            if eval_active_command is not None:
+                await self._kill_active_command(eval_active_command)
             metrics.openhands_run_time += time.time()
             metrics.patch_exists = False
             metrics.final_eval_apptainer_spinup_time = None
@@ -1518,13 +1531,25 @@ class RunOpenHandsAgent(BaseModel):
             metrics.patch_exists = False
             metrics.final_eval_apptainer_spinup_time = None
 
-            await self._kill_active_command(eval_active_command)
+            if eval_active_command is not None:
+                await self._kill_active_command(eval_active_command)
 
             update_metrics(self.config.metrics_fpath, metrics.model_dump())
             return
 
         with open(self.config.model_patch_path, "w") as f:
             f.write(patch)
+
+        if self.config.skip_eval:
+            # Eval is intentionally skipped — record that the patch exists,
+            # leave eval timings unset, and return None so the caller treats
+            # this sample as unresolved (reward = 0).
+            metrics.final_eval_apptainer_spinup_time = None
+            metrics.final_eval_time = None
+            update_metrics(self.config.metrics_fpath, metrics.model_dump())
+            if self.config.debug:
+                profiler.stop()
+            return None
 
         metrics.final_eval_time = -time.time()
         try:
