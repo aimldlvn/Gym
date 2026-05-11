@@ -45,13 +45,14 @@ def load_verifiers_dataset(vf_env: vf.Environment, n: int = -1, seed: int | None
         if n > 0:
             dataset = dataset.select(range(min(n, len(dataset))))
 
+    cols = dataset.column_names
     return [
         {
             "prompt": dataset["prompt"][i],
-            "example_id": dataset["example_id"][i],
-            "task": dataset["task"][i],
-            **({"answer": dataset["answer"][i]} if "answer" in dataset.column_names else {}),
-            **({"info": dataset["info"][i]} if "info" in dataset.column_names else {}),
+            "example_id": dataset["example_id"][i] if "example_id" in cols else i,
+            "task": dataset["task"][i] if "task" in cols else "default",
+            **({"answer": dataset["answer"][i]} if "answer" in cols else {}),
+            **({"info": dataset["info"][i]} if "info" in cols else {}),
         }
         for i in range(len(dataset))
     ]

@@ -1,0 +1,28 @@
+verifiers_agent:
+  responses_api_agents:
+    verifiers_agent:
+      entrypoint: app.py
+      domain: knowledge
+      description: Prime intellect verifiers and environments hub integration, wiki-search environment example.
+      value: Improve multi-turn tool-using search and retrieval reasoning capabilities.
+      model_server:
+        type: responses_api_models
+        name: policy_model
+      model_name: ""
+      vf_env_id: wiki-search
+      vf_env_args:
+        max_turns: 10 # max number of turns of tool (RAG) calls
+        # Judge model (LLM-as-judge for reward). Routed to NVIDIA inference hub.
+        judge_model: "gcp/google/gemini-3.1-flash-lite-preview"
+        judge_base_url: "https://inference-api.nvidia.com/v1"
+        judge_api_key_var: "NVIDIA_API_KEY" # name of env var; exported by `set -a; source .env; set +a` in launch_server.sh
+        # Embedding model (for Chroma retrieval). Routed to NVIDIA inference hub.
+        embed_model: "azure/openai/text-embedding-3-small" # this env defaults using a symmetric emmbeding model (e.g. not differentiation between query vs passage)
+        embed_base_url: "https://inference-api.nvidia.com/v1"
+        embed_api_key_var: "NVIDIA_API_KEY"
+      group_size: 1
+      max_concurrent_generation: -1 # leave at -1. Use num_samples_in_parallel to control
+      max_concurrent_scoring: -1 # leave at -1
+      max_tokens: 8192
+      temperature: 1.0
+      top_p: 1.0
