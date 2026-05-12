@@ -2,14 +2,6 @@ instances:
   - url: nvidia-gym.docs.buildwithfern.com/nemo/gym
     custom-domain: docs.nvidia.com/nemo/gym
 
-# missing-redirects requires FDR auth to compare against the published
-# nav; running it at `error` exits 1 in CI whenever DOCS_FERN_TOKEN can't
-# reach FDR (current state). Keep at `warn` until we have a working token,
-# then flip back to `error` to enforce.
-check:
-  rules:
-    # missing-redirects: warn
-
 title: NeMo Gym
 
 footer: ./components/CustomFooter.tsx
