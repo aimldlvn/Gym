@@ -1422,6 +1422,40 @@ class OpenCodeHarnessProcessor(BaseDatasetHarnessProcessor):
         user_message_host_path.write_text(user_message)
         user_message_in_sif = "/opencode_setup/opencode/user_message.txt"
 
+        # Dataset-aware env activation before launching the agent. Activating
+        # in the parent shell means the PATH / VIRTUAL_ENV / CONDA_DEFAULT_ENV
+        # propagate down through run_infer.sh -> bun -> opencode's bash tool.
+        # Wrapped in `|| true` so a missing env doesn't kill the rollout.
+        dataset_name = str(data_point.get("dataset_name", ""))
+        if "SWE-Gym" in dataset_name:
+            # SWE-Gym: deactivate any active venv, then activate conda testbed.
+            conda_activate_cmd = (
+                "{ deactivate >/dev/null 2>&1 || true; unset VIRTUAL_ENV; "
+                "if [ -d /opt/miniconda3 ]; then "
+                ". /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed || true; "
+                "fi; } && "
+            )
+        elif "R2E-Gym" in dataset_name:
+            # R2E-Gym: deactivate any active venv, then source the bundled venv.
+            conda_activate_cmd = (
+                "{ deactivate >/dev/null 2>&1 || true; unset VIRTUAL_ENV; "
+                "if [ -f /testbed/.venv/bin/activate ]; then "
+                ". /testbed/.venv/bin/activate || true; "
+                "fi; } && "
+            )
+        elif dataset_name in ("nv-internal-1", "swe-bench-ext") or "SWE-rebench-V2" in dataset_name:
+            # These SIFs ship with the right interpreter already on PATH.
+            conda_activate_cmd = ""
+        else:
+            # Default SWE-bench (Verified/Lite/Multilingual/Live): conda
+            # testbed env at /opt/miniconda3 holds the per-instance Python.
+            conda_activate_cmd = (
+                "if [ -d /opt/miniconda3 ]; then "
+                ". /opt/miniconda3/etc/profile.d/conda.sh "
+                "&& conda activate testbed || true; "
+                "fi && "
+            )
+
         agent_main_cmd = (
             "mkdir -p /tmp/ && "
             "export PATH=/opencode_setup/bun/bin:$PATH && "
@@ -1434,6 +1468,7 @@ class OpenCodeHarnessProcessor(BaseDatasetHarnessProcessor):
             f"export COMMAND_EXEC_TIMEOUT={self.config.command_exec_timeout} && "
             f"export ENABLE_SUBAGENTS={'1' if self.config.opencode_subagents_enabled else '0'} && "
             f"echo {shlex.quote(config_str)} >{config_file_path} && "
+            f"{conda_activate_cmd}"
             "./evaluation/benchmarks/swe_bench/scripts/run_infer.sh "
             f"    {self.config.agent_framework_commit} "  # $1: opencode commit
             f"    {self.config.resolved_agent_cls} "  # $2: agent class (informational)
