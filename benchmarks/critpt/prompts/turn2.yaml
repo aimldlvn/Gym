@@ -1,0 +1,14 @@
+# Compiled from https://github.com/CritPt-Benchmark/CritPt/blob/main/templates/prompt_template_default.yaml
+# Mirrors NeMo-Skills nemo_skills/prompt/config/eval/critpt/code_output.yaml verbatim.
+#
+# Documentation parity only — the CritPtAgent currently builds this prompt inline in
+# responses_api_agents/critpt_agent/app.py:_build_turn2_user_message. If this file is
+# edited, mirror the change there (or refactor the agent to load this file).
+
+user: |-
+  Populate your final answer into the code template provided below.
+  This step is purely for formatting/display purposes. No additional reasoning or derivation should be performed.
+  Do not import any modules or packages beyond what is provided in the template.
+  ```python
+  {code_template}
+  ```
