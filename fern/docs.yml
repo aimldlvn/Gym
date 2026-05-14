@@ -62,14 +62,14 @@ experimental:
   basepath-aware: true
 
 versions:
-  - display-name: Latest
-    path: versions/latest.yml
-    slug: latest
-    availability: stable
   - display-name: Main
     path: versions/main.yml
     slug: main
     availability: beta
+  - display-name: Latest
+    path: versions/latest.yml
+    slug: latest
+    availability: stable
   - display-name: "0.2.1"
     path: versions/v0.2.1.yml
     slug: v0.2.1
@@ -78,18 +78,18 @@ versions:
 redirects:
   # With `experimental.basepath-aware: true`, both source and destination must include
   # the full `/nemo/gym/` basepath with a leading slash. See nemo-curator's docs.yml.
-  # Legacy Sphinx top-level entry points
+  # Legacy Sphinx top-level entry points (Main is now the default version)
   - source: "/nemo/gym/index.html"
-    destination: "/nemo/gym/latest"
+    destination: "/nemo/gym/main"
   - source: "/nemo/gym/index"
-    destination: "/nemo/gym/latest"
+    destination: "/nemo/gym/main"
   # Legacy Sphinx page paths → current Fern slugs
   - source: "/nemo/gym/about/concepts/configuration-system.html"
     destination: "/nemo/gym/about/concepts/configuration"
   - source: "/nemo/gym/about/concepts/core-abstractions.html"
     destination: "/nemo/gym/about/core-components"
   - source: "/nemo/gym/get-started/setup-installation.html"
-    destination: "/nemo/gym/get-started/detailed-setup"
+    destination: "/nemo/gym/get-started/installation"
   - source: "/nemo/gym/how-to-faq.html"
     destination: "/nemo/gym/reference/faq"
   - source: "/nemo/gym/infrastructure/aiohttp-vs-httpx.html"
@@ -131,6 +131,10 @@ redirects:
   - source: "/nemo/gym/tutorials/offline-training-w-rollouts.html"
     destination: "/nemo/gym/training-tutorials/offline-training-w-rollouts"
   # Renamed/moved pages within the Fern site
+  - source: "/nemo/gym/latest/get-started/detailed-setup"
+    destination: "/nemo/gym/latest/get-started/quickstart"
+  - source: "/nemo/gym/latest/get-started/rollout-collection"
+    destination: "/nemo/gym/latest/get-started/quickstart"
   - source: "/nemo/gym/latest/about/concepts/core-components"
     destination: "/nemo/gym/latest/about/core-components"
   - source: "/nemo/gym/latest/about/concepts/architecture"
@@ -139,6 +143,8 @@ redirects:
     destination: "/nemo/gym/latest/resources-server"
   - source: "/nemo/gym/latest/about/concepts/configuration"
     destination: "/nemo/gym/latest/reference/configuration"
+  - source: "/nemo/gym/latest/about/concepts/training-approaches"
+    destination: "/nemo/gym/latest/about/concepts/training"
   - source: "/nemo/gym/latest/environment-tutorials/designing-customer-evaluation"
     destination: "/nemo/gym/latest/environment-tutorials"
   - source: "/nemo/gym/v0.2.1/environment-tutorials/real-world-data-generation"
