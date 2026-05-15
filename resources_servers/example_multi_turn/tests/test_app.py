@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 
 from nemo_gym.base_resources_server import BaseResourcesServerConfig
 from nemo_gym.server_utils import ServerClient
-from resources_servers.example_multi_turn_env.app import ScriptedMultiTurnEnv
+from resources_servers.example_multi_turn.app import ScriptedMultiTurnEnv
 
 
 class TestApp:

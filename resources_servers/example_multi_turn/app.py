@@ -13,9 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Scripted multi-turn GymnasiumServer example.
-
-Replays follow-up messages from verifier_metadata. Turn index tracked per session_id.
+"""Scripted multi-turn example. Replays follow-up messages from verifier_metadata.
 
 verifier_metadata fields:
   follow_ups:      List[str]   follow-up messages sent after each assistant turn
