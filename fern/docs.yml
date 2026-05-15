@@ -152,6 +152,27 @@ redirects:
     destination: "/nemo/gym/main/environment-tutorials/real-world-environment/generating-training-data"
   - source: "/nemo/gym/latest/environment-tutorials/real-world-implementation"
     destination: "/nemo/gym/main/environment-tutorials/real-world-environment/resources-server-implementation"
+  # Flatten /latest/get-started consolidation directly to quickstart (skip the 2-hop chain)
+  - source: "/nemo/gym/latest/get-started/detailed-setup"
+    destination: "/nemo/gym/main/get-started/quickstart"
+  - source: "/nemo/gym/latest/get-started/rollout-collection"
+    destination: "/nemo/gym/main/get-started/quickstart"
+  # Pages that only existed under v0.2.1's structure (no /main/ equivalent at the same path)
+  # - `benchmarks/` was folded into `environment-tutorials/` on main
+  # - `documentation/home` no longer exists; send to the main root
+  # - `pypi-install` was consolidated into `installation` on main
+  - source: "/nemo/gym/latest/benchmarks/adding-a-benchmark"
+    destination: "/nemo/gym/main/environment-tutorials/adding-a-benchmark"
+  - source: "/nemo/gym/latest/benchmarks/designing-customer-evaluation"
+    destination: "/nemo/gym/main/environment-tutorials"
+  - source: "/nemo/gym/latest/benchmarks/run-benchmark-suite"
+    destination: "/nemo/gym/main/environment-tutorials"
+  - source: "/nemo/gym/latest/benchmarks"
+    destination: "/nemo/gym/main/environment-tutorials"
+  - source: "/nemo/gym/latest/documentation/home"
+    destination: "/nemo/gym/main"
+  - source: "/nemo/gym/latest/get-started/pypi-install"
+    destination: "/nemo/gym/main/get-started/installation"
   # Version alias: v0.2 → v0.2.1
   - source: "/nemo/gym/v0.2"
     destination: "/nemo/gym/v0.2.1"
