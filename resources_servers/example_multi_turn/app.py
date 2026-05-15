@@ -28,16 +28,18 @@ from nemo_gym.openai_utils import NeMoGymResponse
 from resources_servers.gymnasium import GymnasiumServer, extract_text
 
 
-class ScriptedMultiTurnEnv(GymnasiumServer):
+class ExampleMultiTurnEnv(GymnasiumServer):
     session_turns: Dict[str, int] = Field(default_factory=dict)
 
     async def reset(self, metadata: dict, session_id: Optional[str] = None) -> tuple[Optional[str], dict]:
+        """Returns (observation, info)."""
         self.session_turns[session_id] = 0
         return None, {}
 
     async def step(
         self, action: NeMoGymResponse, metadata: dict, session_id: Optional[str] = None
     ) -> tuple[Optional[str], float, bool, bool, dict]:
+        """Returns (observation, reward, terminated, truncated, info)."""
         follow_ups = metadata.get("follow_ups", [])
         turn = self.session_turns.get(session_id, 0)
 
@@ -52,4 +54,4 @@ class ScriptedMultiTurnEnv(GymnasiumServer):
 
 
 if __name__ == "__main__":
-    ScriptedMultiTurnEnv.run_webserver()
+    ExampleMultiTurnEnv.run_webserver()
