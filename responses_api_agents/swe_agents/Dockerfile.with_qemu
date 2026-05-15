@@ -8,8 +8,7 @@ RUN apt-get update \
     && apt-get install -y \
       qemu-system \
       qemu-user \
-      qemu-user-static \
-    && rm -rf /var/lib/apt/lists/*
+      qemu-user-static
 
 # Verify installation during build
 RUN qemu-system-x86_64 --version && \
