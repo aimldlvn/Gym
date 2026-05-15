@@ -3,6 +3,8 @@ example_multi_turn:
     example_multi_turn:
       entrypoint: app.py
       domain: knowledge
+      description: Example multi-turn environment using Gymnasium
+      value: Demonstrate multi-turn agent interaction with a scripted user
       verified: false
 example_multi_turn_gymnasium_agent:
   responses_api_agents:
