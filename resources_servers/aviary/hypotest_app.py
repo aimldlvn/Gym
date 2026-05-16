@@ -71,7 +71,12 @@ class HypotestResourcesServer(AviaryResourcesServer[InterpreterEnv, HypotestData
 
 
 def _env_wandb_extras(env: InterpreterEnv | None) -> dict[str, Any]:
-    """Pull per-rollout Hypotest diagnostics off the env state."""
+    """Pull per-rollout diagnostics off the env state for wandb logging.
+
+    Numeric fields auto-become scalar metrics in nemo_rl/experience/rollouts.py;
+    string/list fields land in the `full_result` wandb Table (guarded by
+    env.should_log_nemo_gym_responses: true in the training YAML).
+    """
     if env is None or getattr(env, "state", None) is None:
         return {}
 
@@ -84,6 +89,10 @@ def _env_wandb_extras(env: InterpreterEnv | None) -> dict[str, Any]:
     hybrid_reward_value = _float(getattr(s, "hybrid_reward_value", 0.0))
     strip_amount = float(max(0.0, rubric_reward_raw - hybrid_reward_value))
 
+    # Spec §12.3: PASS/FAIL decomposition. A "PASS" rollout is one the rubric grader
+    # awarded full credit to; a "FAIL" rollout is anything else. PASS strip is the
+    # false-positive-prone signal — if it drifts high, the gate is stripping honest
+    # solves. FAIL strip is the intended work (reward-hack suppression).
     eps = 1e-6
     is_pass = int(rubric_reward_raw >= 1.0 - eps)
     is_stripped = int(strip_amount > eps)
@@ -130,6 +139,8 @@ def _env_wandb_extras(env: InterpreterEnv | None) -> dict[str, Any]:
 
 
 def _cell_timeout_extras(s: Any) -> dict[str, Any]:
+    """Per-rollout cell-timeout override diagnostics. Scalar keys are stable
+    across override_mode=off vs on runs; off-mode trivially reports zeros."""
     reqs = list(getattr(s, "cell_timeout_override_requests", None) or [])
     return {
         "cell_timeout_override_count": len(reqs),
@@ -139,6 +150,9 @@ def _cell_timeout_extras(s: Any) -> dict[str, Any]:
 
 
 def _wager_extras(s: Any) -> dict[str, Any]:
+    """Scalar wager diagnostics for wandb. Always emitted so scalar keys are
+    stable across wager_mode=off vs shadow/active runs; off-mode rollouts
+    trivially report zeros."""
     wager = _float(getattr(s, "wager", 0.0))
     wm = getattr(s, "wager_metadata", None) or {}
     correct_sig = wm.get("correct")
@@ -160,6 +174,7 @@ def _wager_extras(s: Any) -> dict[str, Any]:
 
 
 def _tri_int(v: bool | None) -> int:
+    """Encode tri-state bool for scalar wandb logging: -1=unset, 0=False, 1=True."""
     if v is None:
         return -1
     return int(bool(v))
@@ -177,6 +192,12 @@ _SHIM_OUTCOMES = (
 
 
 def _shim_extras(env: InterpreterEnv) -> dict[str, Any]:
+    """Parse the per-rollout install-shim JSONL log and emit scalar counters.
+
+    Log path: `$WORKDIR/.install_shim/log`. Missing file (or off-path kernel
+    setups) returns zeros for every outcome so the scalar keys are stable
+    across rollouts regardless of whether the shim ran.
+    """
     counts = {outcome: 0 for outcome in _SHIM_OUTCOMES}
     total = 0
     work_dir = getattr(env, "work_dir", None)
@@ -186,6 +207,9 @@ def _shim_extras(env: InterpreterEnv) -> dict[str, Any]:
             try:
                 with log_path.open("r") as f:
                     for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
                         try:
                             entry = json.loads(line)
                         except Exception:
