@@ -19,6 +19,12 @@ Push
 docker push gitlab-master.nvidia.com:5005/nexus-team/nexusnest/container_with_qemu:latest
 ```
 
+Pull via enroot
+```bash
+CONTAINER_IMAGE_PATH="results/container_with_qemu.sqsh"
+enroot import -o "$CONTAINER_IMAGE_PATH" 'docker://gitlab-master.nvidia.com#nexus-team/nexusnest/container_with_qemu:latest'
+```
+
 Pull one apptainer
 ```bash
 apptainer pull docker://swebench/sweb.eval.x86_64.astropy_1776_astropy-12907
