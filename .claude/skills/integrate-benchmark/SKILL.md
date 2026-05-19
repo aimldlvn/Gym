@@ -1,32 +1,46 @@
 ---
-name: add-benchmark
+name: integrate-benchmark
 description: >
-  Guide for adding a new benchmark or training environment to NeMo-Gym.
-  Use when the user asks to add, create, or integrate a benchmark, evaluation,
-  training environment, or resources server into NeMo-Gym. Also use when wrapping
-  an existing 3rd-party benchmark library. Covers the full workflow: data preparation,
-  resources server implementation, agent wiring, YAML config, testing, and reward
-  profiling (baselining). Triggered by: "add benchmark", "new resources server",
-  "integrate benchmark", "wrap benchmark", "add training environment", "add eval".
+  Guide for adding a new benchmark or training environment to NeMo-Gym. This should
+  only be used when a benchmark or training environment ALREADY exists but is not in 
+  NeMo Gym yet. You can also use this when wrapping an existing 3rd-party benchmark
+  library. 
+  If the benchmark/training environment doesn't already exist, for example a brand
+  new benchmark or environment that they are defining for the first time, use the
+  `create-benchmark` skill instead. 
+  Triggered by: "integrate benchmark", "wrap benchmark", 
+  "port benchmark", "add existing benchmark", "integrate X into Gym", "wrap X library", 
+  "add X benchmark to Gym"
 ---
 
 # Add Benchmark to NeMo-Gym
 
 ## Determine Integration Type
 
-Before starting, determine which type of benchmark you're adding:
+Before starting, determine which type of external benchmark you're adding.
+Does the upstream benchmark expose its agent/harness loop or is the full harness and model
+a sandboxed process that runs on its own? 
 
-**Native benchmark** — verification logic implemented directly in a Gym resources server:
-- Resources server implements `verify()` with reward logic
-- Agent server orchestrates model calls (use `simple_agent` for single-turn, or custom agent for multi-turn)
-- Example: `code_gen`, `instruction_following`, `math_with_judge`
+Either way, you will integrate at the agent server level and not in resources server.
+In short, you will wrap the benchmark in the agent server's `/run` endpoint. 
 
-**External benchmark** — wrapping a 3rd-party library that has its own orchestration:
+These are the two types of external benchmarks to integrate: 
+**Model benchmark** - wrapping a 3rd-party library that has its own orchestration (tasks, verification) and its own agent loop. The policy model is what is flexible. 
+
+- Integrate at the agent server level (not resources server) 
+- Agent's `/run` endpoint wraps the external library 
+- Pre-process from Gym schema to library input, post-process back to `BaseVerifyResponse`
+- Reproduce publicly reported numbers with the original repo first, then reproduce again after Gym integration
+- Add the dependency in `requirements.txt`
+Reference: `responses_api_agents/tau2`
+
+**Model and Agent benchmark** — wrapping a 3rd-party library that has its own orchestration (tasks and verification) but the agent and model are flexible:
 - Integrate at the agent server level (not resources server)
 - Agent's `/run` endpoint wraps the external library
 - Pre-process from Gym schema to library input, post-process back to `BaseVerifyResponse`
 - Reproduce publicly reported numbers with the original repo first, then reproduce again after Gym integration
 - Add the dependency in `requirements.txt`
+Reference: TODO - do we have a good example of this? 
 
 ## Workflow
 
@@ -49,7 +63,7 @@ resources_servers/my_benchmark/
 └── README.md
 ```
 
-For external benchmarks, create the agent server manually under `responses_api_agents/my_agent/` with the same structure.
+Then create the agent server manually under `responses_api_agents/my_agent/` with the same structure.
 
 ### Step 2: Prepare data
 
@@ -76,7 +90,7 @@ Convert your source dataset to Gym JSONL format. Each line must have `responses_
 
 **`train`/`validation` datasets**: Upload to the GitLab dataset registry — these must NOT be committed to git.
 
-```bash
+```bash 
 ng_upload_dataset_to_gitlab \
     +dataset_name=my_benchmark \
     +version=0.0.1 \
@@ -220,6 +234,8 @@ For external benchmarks: reproduce the original repo's published numbers first. 
 
 ### Step 8: Pre-commit and PR
 
+Use `.github/ISSUE_TEMPLATE/environment-integration.md` to make sure and issue is created for the integrated environment. 
+
 ```bash
 pre-commit run --all-files
 ```
@@ -246,6 +262,7 @@ git checkout -- resources_servers/other_server/
 - `/run` endpoint must be async
 - Errors from tool execution or bad model output must return error responses, not crash
 - All commits require DCO sign-off (`-s`) and cryptographic signature (`-S`)
+- Issue for the integrated environment is created from `.github/ISSUE_TEMPLATE/environment-integration.md`
 
 ## Reference
 
