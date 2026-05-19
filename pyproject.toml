@@ -136,10 +136,10 @@ dependencies = [
 
     # mlflow-skinny: used for interacting with the Gitlab model registry. We use the "skinny" version that does not have unnecessary dependencies.
     # mlflow dependency is necessary for importing. However, all of mlflow's dependencies that don't overlap with mlflow-skinny are excluded below.
-    # Updated Tue Feb 17, 2026 with mlflow-skinny==3.9.0
+    # Updated Mon May 19, 2026 with mlflow>=3.12.0 (CVE remediation)
     # License: Apache 2.0 https://github.com/mlflow/mlflow/blob/c6ce84e817897e1a0461632f8a06d4e5e4ac3726/LICENSE.txt
-    "mlflow-skinny",
-    "mlflow",
+    "mlflow-skinny>=3.12.0",
+    "mlflow>=3.12.0",
 
     # aiohttp: async http backend
     # Updated Mon Feb 10, 2026 with aiohttp>=3.13.3
