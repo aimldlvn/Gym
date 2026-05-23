@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 
 DATA_DIR = Path(__file__).parent / "tau2_data"
+PROMPT_OVERRIDE_DIR = Path(__file__).parent / "prompt_overrides"
 environ["TAU2_DATA_DIR"] = str(DATA_DIR)
 
 from fastapi import Body
@@ -89,6 +90,35 @@ class Tau2VerifyResponse(Tau2RunRequest, BaseVerifyResponse):
     max_completion_tokens: Optional[float]
 
 
+def apply_anthropic_tau2_prompt_overrides():
+    if not PROMPT_OVERRIDE_DIR.exists():
+        return
+
+    airline_override = PROMPT_OVERRIDE_DIR / "airline_policy.md"
+    telecom_addendum = PROMPT_OVERRIDE_DIR / "telecom_policy_addendum.md"
+    tools_user_override = PROMPT_OVERRIDE_DIR / "simulation_guidelines_tools.md"
+
+    airline_policy = DATA_DIR / "tau2/domains/airline/policy.md"
+    telecom_manual = DATA_DIR / "tau2/domains/telecom/tech_support_manual.md"
+    tools_user_prompt = DATA_DIR / "tau2/user_simulator/simulation_guidelines_tools.md"
+
+    if airline_override.exists():
+        airline_policy.write_text(airline_override.read_text())
+        logger.info("Applied Anthropic tau2 airline policy override")
+
+    if telecom_addendum.exists():
+        current_telecom_manual = telecom_manual.read_text()
+        if "# CRITICAL CHECKS" not in current_telecom_manual:
+            telecom_manual.write_text(
+                current_telecom_manual.rstrip() + "\n\n" + telecom_addendum.read_text()
+            )
+            logger.info("Applied Anthropic tau2 telecom policy addendum")
+
+    if tools_user_override.exists():
+        tools_user_prompt.write_text(tools_user_override.read_text())
+        logger.info("Applied Anthropic tau2 tools user-simulator override")
+
+
 class Tau2Agent(SimpleResponsesAPIAgent):
     config: Tau2Config
 
@@ -109,6 +139,8 @@ class Tau2Agent(SimpleResponsesAPIAgent):
                 check=True,
                 executable="/bin/bash",
             )
+
+        apply_anthropic_tau2_prompt_overrides()
 
         if not self.config.debug:
             print("Removing loguru logging since `debug=False`")
